@@ -1,5 +1,5 @@
 
-import { Download, Eye, FileText, CheckCircle, Loader2 } from "lucide-react";
+import { Download, Eye, FileText, CheckCircle, Loader2, Image } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ProcessingState, ProcessingParameters } from "@/types/print";
@@ -9,87 +9,24 @@ interface OutputPanelProps {
   processingState: ProcessingState;
   outputUrl: string | null;
   parameters: ProcessingParameters;
+  processedImageUrl?: string | null;
 }
 
-export const OutputPanel = ({ processingState, outputUrl, parameters }: OutputPanelProps) => {
+export const OutputPanel = ({ processingState, outputUrl, parameters, processedImageUrl }: OutputPanelProps) => {
   const { toast } = useToast();
   const isCompleted = processingState === "completed" && outputUrl;
   const isProcessing = processingState === "processing";
 
-  const createMockPDF = () => {
-    // Create a simple mock PDF for demonstration
-    const pdfContent = `%PDF-1.4
-1 0 obj
-<<
-/Type /Catalog
-/Pages 2 0 R
->>
-endobj
-
-2 0 obj
-<<
-/Type /Pages
-/Kids [3 0 R]
-/Count 1
->>
-endobj
-
-3 0 obj
-<<
-/Type /Page
-/Parent 2 0 R
-/MediaBox [0 0 ${parameters.finalDimensions.width * 2.83} ${parameters.finalDimensions.height * 2.83}]
-/Contents 4 0 R
->>
-endobj
-
-4 0 obj
-<<
-/Length 44
->>
-stream
-BT
-/F1 12 Tf
-100 700 Td
-(Processed Print File) Tj
-ET
-endstream
-endobj
-
-xref
-0 5
-0000000000 65535 f 
-0000000009 00000 n 
-0000000058 00000 n 
-0000000115 00000 n 
-0000000267 00000 n 
-trailer
-<<
-/Size 5
-/Root 1 0 R
->>
-startxref
-361
-%%EOF`;
-    
-    const blob = new Blob([pdfContent], { type: 'application/pdf' });
-    return URL.createObjectURL(blob);
-  };
-
   const handleDownload = () => {
+    if (!outputUrl) return;
+    
     try {
-      // Create a proper downloadable PDF blob
-      const downloadUrl = createMockPDF();
-      
       const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = `print-ready-${parameters.finalDimensions.width}x${parameters.finalDimensions.height}mm.pdf`;
+      link.href = outputUrl;
+      link.download = `print-ready-${parameters.finalDimensions.width}x${parameters.finalDimensions.height}mm-${parameters.bleedMargin}mm-bleed.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      
-      // Clean up the blob URL
-      URL.revokeObjectURL(downloadUrl);
       
       toast({
         title: "Download Started",
@@ -105,10 +42,10 @@ startxref
   };
 
   const handlePreview = () => {
+    if (!outputUrl) return;
+    
     try {
-      // Create a blob URL for preview
-      const previewUrl = createMockPDF();
-      window.open(previewUrl, '_blank');
+      window.open(outputUrl, '_blank');
       
       toast({
         title: "Preview Opened",
@@ -153,6 +90,9 @@ startxref
             <p className="text-sm text-gray-500 mt-2">
               Applying {parameters.finalDimensions.width}×{parameters.finalDimensions.height}mm dimensions
             </p>
+            <p className="text-sm text-gray-500">
+              Adding {parameters.bleedMargin}mm bleed margin and {parameters.cutLineType} cut lines
+            </p>
           </div>
         )}
 
@@ -164,19 +104,37 @@ startxref
               <p className="text-sm text-gray-500">Your file is ready for download</p>
             </div>
 
+            {processedImageUrl && (
+              <div className="border rounded-lg p-2 bg-gray-50">
+                <div className="flex items-center space-x-2 mb-2">
+                  <Image className="h-4 w-4 text-gray-600" />
+                  <span className="text-sm font-medium">Processed Preview</span>
+                </div>
+                <img 
+                  src={processedImageUrl} 
+                  alt="Processed image with bleed and cut lines"
+                  className="w-full h-auto rounded border max-h-64 object-contain"
+                />
+                <p className="text-xs text-gray-500 mt-1 text-center">
+                  Shows bleed extension and {parameters.cutLineType} cut lines
+                </p>
+              </div>
+            )}
+
             <div className="border rounded-lg p-4 bg-gray-50">
               <div className="text-sm space-y-1">
                 <p><span className="font-medium">Format:</span> PDF</p>
                 <p><span className="font-medium">Dimensions:</span> {parameters.finalDimensions.width}×{parameters.finalDimensions.height}mm</p>
                 <p><span className="font-medium">DPI:</span> {parameters.dpi}</p>
                 <p><span className="font-medium">Bleed:</span> {parameters.bleedMargin}mm</p>
+                <p><span className="font-medium">Cut Lines:</span> {parameters.cutLineType}</p>
               </div>
             </div>
 
             <div className="space-y-2">
               <Button onClick={handlePreview} variant="outline" className="w-full">
                 <Eye className="h-4 w-4 mr-2" />
-                Preview
+                Preview PDF
               </Button>
               <Button onClick={handleDownload} className="w-full">
                 <Download className="h-4 w-4 mr-2" />
