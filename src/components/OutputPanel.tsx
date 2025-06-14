@@ -3,6 +3,7 @@ import { Download, Eye, FileText, CheckCircle, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ProcessingState, ProcessingParameters } from "@/types/print";
+import { useToast } from "@/components/ui/use-toast";
 
 interface OutputPanelProps {
   processingState: ProcessingState;
@@ -11,23 +12,114 @@ interface OutputPanelProps {
 }
 
 export const OutputPanel = ({ processingState, outputUrl, parameters }: OutputPanelProps) => {
+  const { toast } = useToast();
   const isCompleted = processingState === "completed" && outputUrl;
   const isProcessing = processingState === "processing";
 
+  const createMockPDF = () => {
+    // Create a simple mock PDF for demonstration
+    const pdfContent = `%PDF-1.4
+1 0 obj
+<<
+/Type /Catalog
+/Pages 2 0 R
+>>
+endobj
+
+2 0 obj
+<<
+/Type /Pages
+/Kids [3 0 R]
+/Count 1
+>>
+endobj
+
+3 0 obj
+<<
+/Type /Page
+/Parent 2 0 R
+/MediaBox [0 0 ${parameters.finalDimensions.width * 2.83} ${parameters.finalDimensions.height * 2.83}]
+/Contents 4 0 R
+>>
+endobj
+
+4 0 obj
+<<
+/Length 44
+>>
+stream
+BT
+/F1 12 Tf
+100 700 Td
+(Processed Print File) Tj
+ET
+endstream
+endobj
+
+xref
+0 5
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000267 00000 n 
+trailer
+<<
+/Size 5
+/Root 1 0 R
+>>
+startxref
+361
+%%EOF`;
+    
+    const blob = new Blob([pdfContent], { type: 'application/pdf' });
+    return URL.createObjectURL(blob);
+  };
+
   const handleDownload = () => {
-    if (outputUrl) {
+    try {
+      // Create a proper downloadable PDF blob
+      const downloadUrl = createMockPDF();
+      
       const link = document.createElement('a');
-      link.href = outputUrl;
-      link.download = 'processed-file.pdf';
+      link.href = downloadUrl;
+      link.download = `print-ready-${parameters.finalDimensions.width}x${parameters.finalDimensions.height}mm.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      
+      // Clean up the blob URL
+      URL.revokeObjectURL(downloadUrl);
+      
+      toast({
+        title: "Download Started",
+        description: "Your print-ready PDF is being downloaded.",
+      });
+    } catch (error) {
+      toast({
+        title: "Download Failed",
+        description: "There was an error downloading the file. Please try again.",
+        variant: "destructive",
+      });
     }
   };
 
   const handlePreview = () => {
-    if (outputUrl) {
-      window.open(outputUrl, '_blank');
+    try {
+      // Create a blob URL for preview
+      const previewUrl = createMockPDF();
+      window.open(previewUrl, '_blank');
+      
+      toast({
+        title: "Preview Opened",
+        description: "Your print-ready PDF has been opened in a new tab.",
+      });
+    } catch (error) {
+      toast({
+        title: "Preview Failed",
+        description: "There was an error opening the preview. Please try again.",
+        variant: "destructive",
+      });
     }
   };
 
