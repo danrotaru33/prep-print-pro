@@ -1,5 +1,5 @@
 
-import { Download, Eye, FileText, CheckCircle, Loader2, Image } from "lucide-react";
+import { Download, Eye, FileText, CheckCircle, Loader2, Image, AlertCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ProcessingState, ProcessingParameters } from "@/types/print";
@@ -10,16 +10,25 @@ interface OutputPanelProps {
   outputUrl: string | null;
   parameters: ProcessingParameters;
   processedImageUrl?: string | null;
+  processingStep?: string | null;
+  processingError?: string | null;
 }
 
-export const OutputPanel = ({ processingState, outputUrl, parameters, processedImageUrl }: OutputPanelProps) => {
+export const OutputPanel = ({
+  processingState,
+  outputUrl,
+  parameters,
+  processedImageUrl,
+  processingStep,
+  processingError
+}: OutputPanelProps) => {
   const { toast } = useToast();
   const isCompleted = processingState === "completed" && outputUrl;
   const isProcessing = processingState === "processing";
+  const isError = processingError !== null;
 
   const handleDownload = () => {
     if (!outputUrl) return;
-    
     try {
       const link = document.createElement('a');
       link.href = outputUrl;
@@ -27,7 +36,6 @@ export const OutputPanel = ({ processingState, outputUrl, parameters, processedI
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      
       toast({
         title: "Download Started",
         description: "Your print-ready PDF is being downloaded.",
@@ -43,10 +51,8 @@ export const OutputPanel = ({ processingState, outputUrl, parameters, processedI
 
   const handlePreview = () => {
     if (!outputUrl) return;
-    
     try {
       window.open(outputUrl, '_blank');
-      
       toast({
         title: "Preview Opened",
         description: "Your print-ready PDF has been opened in a new tab.",
@@ -76,14 +82,14 @@ export const OutputPanel = ({ processingState, outputUrl, parameters, processedI
           </div>
         )}
 
-        {(processingState === "uploaded" || processingState === "validating" || processingState === "validated") && (
+        {(processingState === "uploaded" || processingState === "validating" || processingState === "validated") && !isError && (
           <div className="text-center py-8 text-gray-500">
             <Loader2 className="h-12 w-12 mx-auto mb-2 opacity-50" />
             <p>Waiting for processing...</p>
           </div>
         )}
 
-        {isProcessing && (
+        {isProcessing && !isError && (
           <div className="text-center py-8">
             <Loader2 className="h-12 w-12 mx-auto mb-4 animate-spin text-blue-600" />
             <p className="font-medium text-blue-700">Processing your file...</p>
@@ -92,6 +98,31 @@ export const OutputPanel = ({ processingState, outputUrl, parameters, processedI
             </p>
             <p className="text-sm text-gray-500">
               Adding {parameters.bleedMargin}mm bleed margin and {parameters.cutLineType} cut lines
+            </p>
+            {processingStep && (
+              <div className="mt-4 text-sm text-blue-900">
+                <span className="font-semibold">Step:</span> {processingStep}
+              </div>
+            )}
+          </div>
+        )}
+
+        {isError && (
+          <div className="text-center py-8">
+            <AlertCircle className="h-12 w-12 mx-auto mb-2 text-red-600" />
+            <p className="font-medium text-red-700">Processing Failed</p>
+            {processingStep && (
+              <p className="text-sm mt-2 text-red-800">
+                <span className="font-semibold">Failed step:</span> {processingStep}
+              </p>
+            )}
+            {processingError && (
+              <p className="text-xs mt-2 text-red-700">
+                <span className="font-semibold">Error:</span> {processingError}
+              </p>
+            )}
+            <p className="text-xs mt-4 text-gray-500">
+              Check the details above and try again. Contact support if the problem persists.
             </p>
           </div>
         )}

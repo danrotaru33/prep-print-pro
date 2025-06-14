@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { FileUpload } from "@/components/FileUpload";
 import { ProcessingPanel } from "@/components/ProcessingPanel";
@@ -24,6 +23,8 @@ const Index = () => {
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
   const [processedImageUrl, setProcessedImageUrl] = useState<string | null>(null);
+  const [processingStep, setProcessingStep] = useState<string | null>(null);
+  const [processingError, setProcessingError] = useState<string | null>(null);
   const { toast } = useToast();
   const { user } = useAuth();
 
@@ -103,13 +104,16 @@ const Index = () => {
     }
 
     setProcessingState("processing");
+    setProcessingStep("Initializing processor");
+    setProcessingError(null);
     console.log('Starting processing with parameters:', parameters);
 
     let outputFilename = "";
     let outputFileUrl = "";
 
     try {
-      // 1. Initialize image processor
+      // Step 1: Init
+      setProcessingStep("Initializing image processor");
       const processor = new ImageProcessor();
 
       toast({
@@ -117,16 +121,19 @@ const Index = () => {
         description: "Your file is being processed with AI optimization...",
       });
 
-      // 2. Process the image with bleed extension, cut lines, and AI optimization
+      // Step 2: Process file
+      setProcessingStep("Processing file (bleed, cut lines, AI)");
       const result = await processor.processFile(uploadedFile, parameters);
       console.log('Processing result:', result);
 
       setProcessedImageUrl(result.processedImageUrl);
 
-      // 3. Create final PDF as Blob
+      // Step 3: Create PDF
+      setProcessingStep("Creating PDF from processed image");
       const pdfBlob = await createPDFFromProcessedImage(result.processedImageUrl, parameters);
 
-      // 4. Generate output filename and upload to Supabase storage
+      // Step 4: Upload to Supabase
+      setProcessingStep("Uploading PDF to Supabase Storage");
       const uniqueId = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
       const ext = ".pdf";
       outputFilename = `printready_${uniqueId}${ext}`;
@@ -140,25 +147,27 @@ const Index = () => {
         });
 
       if (uploadError) {
+        setProcessingStep("Uploading PDF to Supabase failed");
         throw new Error("Failed to upload file to storage: " + uploadError.message);
       }
 
-      // 5. Get public URL for download (via signed URL since bucket is private)
+      // Step 5: Get public URL
+      setProcessingStep("Getting signed URL from Supabase");
       const { data: fileUrlData, error: urlError } = await supabase
         .storage
         .from('processed-files')
-        .createSignedUrl(outputFilename, 60 * 60); // 1 hour signed URL
+        .createSignedUrl(outputFilename, 60 * 60);
 
       if (urlError || !fileUrlData?.signedUrl) {
+        setProcessingStep("Generating signed URL failed");
         throw new Error("Failed to get signed URL: " + (urlError?.message ?? "unknown error"));
       }
 
       outputFileUrl = fileUrlData.signedUrl;
       setOutputUrl(outputFileUrl);
 
-      setProcessingState("completed");
-
-      // 6. Log metadata to processed_files table for the user
+      // Step 6: Log to DB
+      setProcessingStep("Logging metadata to database");
       const { error: dbError } = await supabase
         .from("processed_files")
         .insert({
@@ -176,6 +185,7 @@ const Index = () => {
         });
 
       if (dbError) {
+        setProcessingStep("Logging metadata to database failed");
         toast({
           title: "Warning: Metadata Logging Failed",
           description: "File was processed, but metadata was not saved to dashboard.",
@@ -183,8 +193,12 @@ const Index = () => {
         });
       }
 
-      // 7. Clean up processor
+      // Step 7: Cleanup
+      setProcessingStep("Cleaning up resources");
       processor.destroy();
+
+      setProcessingState("completed");
+      setProcessingStep(null);
 
       toast({
         title: "Processing Complete!",
@@ -193,6 +207,12 @@ const Index = () => {
 
     } catch (error: any) {
       console.error('Processing error:', error);
+      setProcessingError(error?.message || String(error));
+      toast({
+        title: `Processing Failed - Step: ${processingStep}`,
+        description: error?.message || String(error),
+        variant: "destructive",
+      });
 
       // Attempt to log failed processing event in DB
       if (user && uploadedFile) {
@@ -210,15 +230,10 @@ const Index = () => {
             cut_line_type: parameters.cutLineType,
             file_url: outputFileUrl || "",
             processing_status: "error",
-            error_message: error.message || String(error),
+            error_message: (processingStep ? `${processingStep}: ` : "") + (error?.message || String(error)),
           });
       }
 
-      toast({
-        title: "Processing Failed",
-        description: "There was an error processing your file. Please try again.",
-        variant: "destructive",
-      });
       setProcessingState("validated");
     }
   };
@@ -261,6 +276,8 @@ const Index = () => {
               outputUrl={outputUrl}
               parameters={parameters}
               processedImageUrl={processedImageUrl}
+              processingStep={processingStep}
+              processingError={processingError}
             />
           </div>
         </div>
