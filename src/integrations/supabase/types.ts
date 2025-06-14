@@ -9,6 +9,68 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      processed_files: {
+        Row: {
+          bleed_mm: number
+          created_at: string | null
+          cut_line_type: string
+          dpi: number
+          error_message: string | null
+          file_url: string
+          format: string
+          height_mm: number
+          id: string
+          original_filename: string
+          output_filename: string
+          processing_status: string
+          updated_at: string | null
+          user_id: string | null
+          width_mm: number
+        }
+        Insert: {
+          bleed_mm: number
+          created_at?: string | null
+          cut_line_type: string
+          dpi: number
+          error_message?: string | null
+          file_url: string
+          format: string
+          height_mm: number
+          id?: string
+          original_filename: string
+          output_filename: string
+          processing_status: string
+          updated_at?: string | null
+          user_id?: string | null
+          width_mm: number
+        }
+        Update: {
+          bleed_mm?: number
+          created_at?: string | null
+          cut_line_type?: string
+          dpi?: number
+          error_message?: string | null
+          file_url?: string
+          format?: string
+          height_mm?: number
+          id?: string
+          original_filename?: string
+          output_filename?: string
+          processing_status?: string
+          updated_at?: string | null
+          user_id?: string | null
+          width_mm?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "processed_files_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           created_at: string
