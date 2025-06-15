@@ -7,9 +7,30 @@ export const createPDFFromProcessedImage = async (
 ): Promise<Blob> => {
   console.log('Creating PDF from processed image');
   
-  // Simple PDF creation with the processed image
-  // In a real implementation, you might use jsPDF or similar
-  const pdfContent = `%PDF-1.4
+  // Load the processed image to get its actual data
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  
+  return new Promise((resolve, reject) => {
+    img.onload = async () => {
+      try {
+        // Create a canvas to convert the image to base64
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d')!;
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+        
+        // Convert to base64 JPEG
+        const imageDataBase64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+        const imageBytes = imageDataBase64.length;
+        
+        // Calculate PDF dimensions (convert mm to points: 1mm = 2.83465 points)
+        const pdfWidth = parameters.finalDimensions.width * 2.83465;
+        const pdfHeight = parameters.finalDimensions.height * 2.83465;
+        
+        // Create a proper PDF with the actual image
+        const pdfContent = `%PDF-1.4
 1 0 obj
 <<
 /Type /Catalog
@@ -29,7 +50,7 @@ endobj
 <<
 /Type /Page
 /Parent 2 0 R
-/MediaBox [0 0 ${parameters.finalDimensions.width * 2.83} ${parameters.finalDimensions.height * 2.83}]
+/MediaBox [0 0 ${pdfWidth.toFixed(2)} ${pdfHeight.toFixed(2)}]
 /Contents 4 0 R
 /Resources <<
   /XObject <<
@@ -45,7 +66,7 @@ endobj
 >>
 stream
 q
-${parameters.finalDimensions.width * 2.83} 0 0 ${parameters.finalDimensions.height * 2.83} 0 0 cm
+${pdfWidth.toFixed(2)} 0 0 ${pdfHeight.toFixed(2)} 0 0 cm
 /Im1 Do
 Q
 endstream
@@ -55,18 +76,15 @@ endobj
 <<
 /Type /XObject
 /Subtype /Image
-/Width ${parameters.finalDimensions.width}
-/Height ${parameters.finalDimensions.height}
+/Width ${img.width}
+/Height ${img.height}
 /ColorSpace /DeviceRGB
 /BitsPerComponent 8
 /Filter /DCTDecode
-/Length 1000
+/Length ${imageBytes}
 >>
 stream
-Processed Image Data (${parameters.finalDimensions.width}×${parameters.finalDimensions.height}mm)
-DPI: ${parameters.dpi}
-Bleed: ${parameters.bleedMargin}mm
-Cut Line: ${parameters.cutLineType}
+${imageDataBase64}
 endstream
 endobj
 
@@ -84,8 +102,22 @@ trailer
 /Root 1 0 R
 >>
 startxref
-800
+${800 + imageBytes}
 %%EOF`;
-  
-  return new Blob([pdfContent], { type: 'application/pdf' });
+        
+        console.log('PDF created with actual image data');
+        resolve(new Blob([pdfContent], { type: 'application/pdf' }));
+      } catch (error) {
+        console.error('Error creating PDF:', error);
+        reject(error);
+      }
+    };
+    
+    img.onerror = (error) => {
+      console.error('Error loading processed image:', error);
+      reject(new Error('Failed to load processed image'));
+    };
+    
+    img.src = processedImageUrl;
+  });
 };

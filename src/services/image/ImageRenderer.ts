@@ -53,11 +53,8 @@ export class ImageRenderer {
     this.ctx.drawImage(img, x, y, scaledWidth, scaledHeight);
     console.log('Content drawn to canvas');
     
-    // Add debug border around content area (remove this in production)
-    this.ctx.strokeStyle = '#00FF00';
-    this.ctx.lineWidth = 2;
-    this.ctx.strokeRect(bleedPixels, bleedPixels, finalWidth, finalHeight);
-    console.log('Debug: Content area outlined in green');
+    // REMOVED: Debug border that was overwriting the content
+    // The debug border was covering the actual image content
   }
 
   async createMockImage(width: number, height: number, text: string[]): Promise<HTMLImageElement> {

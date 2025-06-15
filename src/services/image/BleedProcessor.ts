@@ -17,65 +17,85 @@ export class BleedProcessor {
     
     if (bleedPixels === 0) return;
     
+    // Get the current canvas data
     const imageData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
     const { data, width, height } = imageData;
     
-    // Extend top bleed
+    // Create a copy to work with
+    const newData = new Uint8ClampedArray(data);
+    
+    // Extend top bleed - copy from the first row of content
     for (let y = 0; y < bleedPixels; y++) {
       for (let x = bleedPixels; x < bleedPixels + finalWidth; x++) {
         const sourceY = bleedPixels;
         const sourceIndex = ((sourceY * width) + x) * 4;
         const targetIndex = ((y * width) + x) * 4;
         
-        data[targetIndex] = data[sourceIndex];         // R
-        data[targetIndex + 1] = data[sourceIndex + 1]; // G
-        data[targetIndex + 2] = data[sourceIndex + 2]; // B
-        data[targetIndex + 3] = data[sourceIndex + 3]; // A
+        // Only copy if source has actual content (not white background)
+        if (data[sourceIndex] !== 255 || data[sourceIndex + 1] !== 255 || data[sourceIndex + 2] !== 255) {
+          newData[targetIndex] = data[sourceIndex];         // R
+          newData[targetIndex + 1] = data[sourceIndex + 1]; // G
+          newData[targetIndex + 2] = data[sourceIndex + 2]; // B
+          newData[targetIndex + 3] = data[sourceIndex + 3]; // A
+        }
       }
     }
     
-    // Extend bottom bleed
+    // Extend bottom bleed - copy from the last row of content
     for (let y = bleedPixels + finalHeight; y < height; y++) {
       for (let x = bleedPixels; x < bleedPixels + finalWidth; x++) {
         const sourceY = bleedPixels + finalHeight - 1;
         const sourceIndex = ((sourceY * width) + x) * 4;
         const targetIndex = ((y * width) + x) * 4;
         
-        data[targetIndex] = data[sourceIndex];
-        data[targetIndex + 1] = data[sourceIndex + 1];
-        data[targetIndex + 2] = data[sourceIndex + 2];
-        data[targetIndex + 3] = data[sourceIndex + 3];
+        // Only copy if source has actual content (not white background)
+        if (data[sourceIndex] !== 255 || data[sourceIndex + 1] !== 255 || data[sourceIndex + 2] !== 255) {
+          newData[targetIndex] = data[sourceIndex];
+          newData[targetIndex + 1] = data[sourceIndex + 1];
+          newData[targetIndex + 2] = data[sourceIndex + 2];
+          newData[targetIndex + 3] = data[sourceIndex + 3];
+        }
       }
     }
     
-    // Extend left bleed
+    // Extend left bleed - copy from the first column of content
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < bleedPixels; x++) {
         const sourceX = bleedPixels;
         const sourceIndex = ((y * width) + sourceX) * 4;
         const targetIndex = ((y * width) + x) * 4;
         
-        data[targetIndex] = data[sourceIndex];
-        data[targetIndex + 1] = data[sourceIndex + 1];
-        data[targetIndex + 2] = data[sourceIndex + 2];
-        data[targetIndex + 3] = data[sourceIndex + 3];
+        // Only copy if source has actual content (not white background)
+        if (data[sourceIndex] !== 255 || data[sourceIndex + 1] !== 255 || data[sourceIndex + 2] !== 255) {
+          newData[targetIndex] = data[sourceIndex];
+          newData[targetIndex + 1] = data[sourceIndex + 1];
+          newData[targetIndex + 2] = data[sourceIndex + 2];
+          newData[targetIndex + 3] = data[sourceIndex + 3];
+        }
       }
     }
     
-    // Extend right bleed
+    // Extend right bleed - copy from the last column of content
     for (let y = 0; y < height; y++) {
       for (let x = bleedPixels + finalWidth; x < width; x++) {
         const sourceX = bleedPixels + finalWidth - 1;
         const sourceIndex = ((y * width) + sourceX) * 4;
         const targetIndex = ((y * width) + x) * 4;
         
-        data[targetIndex] = data[sourceIndex];
-        data[targetIndex + 1] = data[sourceIndex + 1];
-        data[targetIndex + 2] = data[sourceIndex + 2];
-        data[targetIndex + 3] = data[sourceIndex + 3];
+        // Only copy if source has actual content (not white background)
+        if (data[sourceIndex] !== 255 || data[sourceIndex + 1] !== 255 || data[sourceIndex + 2] !== 255) {
+          newData[targetIndex] = data[sourceIndex];
+          newData[targetIndex + 1] = data[sourceIndex + 1];
+          newData[targetIndex + 2] = data[sourceIndex + 2];
+          newData[targetIndex + 3] = data[sourceIndex + 3];
+        }
       }
     }
     
-    this.ctx.putImageData(imageData, 0, 0);
+    // Apply the changes back to the canvas
+    const newImageData = new ImageData(newData, width, height);
+    this.ctx.putImageData(newImageData, 0, 0);
+    
+    console.log('Bleed extension completed');
   }
 }
