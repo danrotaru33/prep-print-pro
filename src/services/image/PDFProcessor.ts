@@ -1,4 +1,3 @@
-
 import * as pdfjsLib from 'pdfjs-dist';
 import { UploadedFile, ProcessingParameters } from "@/types/print";
 import { ImageRenderer } from "./ImageRenderer";
@@ -13,49 +12,31 @@ export class PDFProcessor {
 
   private async initializeWorker(): Promise<void> {
     if (this.workerInitialized) return;
-    
+
     try {
-      console.log('Initializing PDF.js worker...');
-      
-      // Try multiple worker sources for better reliability
-      const workerSources = [
-        // Use npm package worker first (most reliable)
-        new URL('pdfjs-dist/build/pdf.worker.min.js', import.meta.url).href,
-        // Fallback to jsdelivr CDN
-        `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`,
-        // Last resort: cloudflare CDN
-        `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`
-      ];
-      
-      for (const workerSrc of workerSources) {
-        try {
-          console.log('Trying worker source:', workerSrc);
-          pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
-          
-          // Test if worker loads by creating a simple document
-          const testData = new Uint8Array([
-            0x25, 0x50, 0x44, 0x46, 0x2D, 0x31, 0x2E, 0x34, 0x0A, 0x25, 0xC4, 0xE5, 0xF2, 0xE5, 0xEB, 0xA7, 0xF3, 0xA0, 0xD0, 0xC4, 0xC6, 0x0A
-          ]);
-          
-          const loadingTask = pdfjsLib.getDocument({ data: testData });
-          await Promise.race([
-            loadingTask.promise,
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Worker test timeout')), 3000))
-          ]);
-          
-          console.log('PDF.js worker initialized successfully with source:', workerSrc);
-          this.workerInitialized = true;
-          return;
-        } catch (error) {
-          console.warn(`Failed to initialize worker with ${workerSrc}:`, error);
-          continue;
-        }
-      }
-      
-      throw new Error('All PDF.js worker sources failed to load');
+      console.log('Initializing PDF.js worker for local asset ONLY...');
+
+      // Robust: Use only the local installed worker (no CDN fallback!)
+      const localWorkerSrc = new URL('pdfjs-dist/build/pdf.worker.min.js', import.meta.url).href;
+
+      pdfjsLib.GlobalWorkerOptions.workerSrc = localWorkerSrc;
+      console.log('[PDFProcessor] Using local workerSrc:', localWorkerSrc);
+
+      // Test: Try to load a minimal doc via worker
+      const testData = new Uint8Array([
+        0x25, 0x50, 0x44, 0x46, 0x2D, 0x31, 0x2E, 0x34, 0x0A, 0x25, 0xC4, 0xE5, 0xF2, 0xE5, 0xEB, 0xA7, 0xF3, 0xA0, 0xD0, 0xC4, 0xC6, 0x0A
+      ]);
+      const loadingTask = pdfjsLib.getDocument({ data: testData });
+      await Promise.race([
+        loadingTask.promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Worker test timeout')), 3000))
+      ]);
+      this.workerInitialized = true;
+      console.log('PDF.js worker initialized successfully and via local asset.');
+      return;
     } catch (error) {
-      console.error('Failed to initialize PDF.js worker:', error);
-      throw new Error('PDF.js worker initialization failed. Please check your internet connection.');
+      console.error('Failed to initialize PDF.js worker using local asset:', error);
+      throw new Error('PDF.js worker initialization failed (local asset). PDF export from PDF source will not work.');
     }
   }
 
