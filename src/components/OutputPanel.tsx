@@ -27,23 +27,19 @@ export const OutputPanel = ({
   const isProcessing = processingState === "processing";
   const isError = processingError !== null;
 
+  // Change: open download in a new tab instead of direct download
   const handleDownload = () => {
     if (!outputUrl) return;
     try {
-      const link = document.createElement('a');
-      link.href = outputUrl;
-      link.download = `print-ready-${parameters.finalDimensions.width}x${parameters.finalDimensions.height}mm-${parameters.bleedMargin}mm-bleed.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      window.open(outputUrl, "_blank");
       toast({
-        title: "Download Started",
-        description: "Your print-ready PDF is being downloaded.",
+        title: "Download Tab Opened",
+        description: "Your print-ready PDF has been opened in a new tab for download or viewing.",
       });
     } catch (error) {
       toast({
         title: "Download Failed",
-        description: "There was an error downloading the file. Please try again.",
+        description: "There was an error opening the PDF. Please try again.",
         variant: "destructive",
       });
     }
