@@ -31,6 +31,7 @@ export class ImageProcessor {
   }
 
   async processFile(file: UploadedFile, parameters: ProcessingParameters): Promise<ProcessingResult> {
+    console.log('=== IMAGE PROCESSING START ===');
     console.log('Starting image processing with parameters:', parameters);
     console.log('File info:', { name: file.file.name, type: file.type, size: file.file.size });
     
@@ -76,6 +77,7 @@ export class ImageProcessor {
 
   private async processImageData(img: HTMLImageElement, parameters: ProcessingParameters): Promise<ProcessingResult> {
     const originalDimensions = { width: img.width, height: img.height };
+    console.log('=== PROCESSING IMAGE DATA ===');
     console.log('Processing image data. Original dimensions:', originalDimensions);
     
     // Calculate dimensions with bleed
@@ -90,36 +92,75 @@ export class ImageProcessor {
     console.log(`Canvas dimensions: ${canvasWidth}x${canvasHeight}px (includes ${bleedPixels}px bleed on each side)`);
     
     // Set up canvas
+    console.log('=== STEP 1: CANVAS SETUP ===');
     this.imageRenderer.setupCanvas(canvasWidth, canvasHeight);
     console.log('Canvas setup completed');
     
     // Resize and position the main content
-    console.log('Starting content positioning...');
+    console.log('=== STEP 2: CONTENT POSITIONING ===');
     await this.imageRenderer.resizeAndPositionContent(img, finalWidth, finalHeight, bleedPixels);
     console.log('Content positioning completed');
     
+    // Check canvas state after content positioning
+    const imageDataAfterContent = this.ctx.getImageData(0, 0, canvasWidth, canvasHeight);
+    const hasContentData = this.checkCanvasHasContent(imageDataAfterContent);
+    console.log('Canvas has content after positioning:', hasContentData);
+    
     // Extend bleed areas
-    console.log('Extending bleed areas...');
+    console.log('=== STEP 3: BLEED EXTENSION ===');
     await this.bleedProcessor.extendBleedAreas(bleedPixels, finalWidth, finalHeight);
     console.log('Bleed extension completed');
     
+    // Check canvas state after bleed processing
+    const imageDataAfterBleed = this.ctx.getImageData(0, 0, canvasWidth, canvasHeight);
+    const hasBleedData = this.checkCanvasHasContent(imageDataAfterBleed);
+    console.log('Canvas has content after bleed processing:', hasBleedData);
+    
     // Add cut lines
-    console.log('Adding cut lines...');
+    console.log('=== STEP 4: CUT LINES ===');
     this.cutLineRenderer.addCutLines(parameters, finalWidth, finalHeight, bleedPixels);
     console.log('Cut lines added');
     
-    // Convert to blob and create URL
-    console.log('Converting canvas to data URL...');
-    const processedImageUrl = await this.canvasToDataURL(this.canvas);
-    console.log('Canvas converted to data URL successfully');
+    // Final canvas check
+    const finalImageData = this.ctx.getImageData(0, 0, canvasWidth, canvasHeight);
+    const hasFinalData = this.checkCanvasHasContent(finalImageData);
+    console.log('Canvas has content after cut lines:', hasFinalData);
     
-    console.log('Image processing complete');
+    // Convert to blob and create URL
+    console.log('=== STEP 5: CANVAS CONVERSION ===');
+    const processedImageUrl = await this.canvasToDataURL(this.canvas);
+    console.log('Canvas converted to data URL successfully, length:', processedImageUrl.length);
+    
+    // Validate the output
+    if (processedImageUrl.length < 1000) {
+      console.error('Generated image URL is suspiciously small');
+      throw new Error('Generated image appears to be empty or corrupted');
+    }
+    
+    console.log('=== IMAGE PROCESSING COMPLETE ===');
     return {
       processedImageUrl,
       originalDimensions,
       finalDimensions: { width: canvasWidth, height: canvasHeight },
       appliedBleed: parameters.bleedMargin
     };
+  }
+
+  private checkCanvasHasContent(imageData: ImageData): boolean {
+    const { data } = imageData;
+    // Check if any pixel is not white (255,255,255,255)
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      const a = data[i + 3];
+      
+      // If we find any non-white pixel, there's content
+      if (r !== 255 || g !== 255 || b !== 255 || a !== 255) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private mmToPixels(mm: number, dpi: number): number {

@@ -17,7 +17,7 @@ export class ImageRenderer {
     // Fill background with white
     this.ctx.fillStyle = '#FFFFFF';
     this.ctx.fillRect(0, 0, width, height);
-    console.log(`Canvas setup: ${width}x${height}`);
+    console.log(`Canvas setup: ${width}x${height} with white background`);
   }
 
   async resizeAndPositionContent(
@@ -26,6 +26,7 @@ export class ImageRenderer {
     finalHeight: number,
     bleedPixels: number
   ): Promise<void> {
+    console.log('=== CONTENT POSITIONING START ===');
     console.log('Resizing and positioning content');
     console.log(`Input image: ${img.width}x${img.height}`);
     console.log(`Target area: ${finalWidth}x${finalHeight} with ${bleedPixels}px bleed`);
@@ -42,16 +43,45 @@ export class ImageRenderer {
     const x = bleedPixels + (finalWidth - scaledWidth) / 2;
     const y = bleedPixels + (finalHeight - scaledHeight) / 2;
     
-    console.log(`Scaled dimensions: ${scaledWidth}x${scaledHeight} (scale: ${scale.toFixed(3)})`);
+    console.log(`Scaled dimensions: ${scaledWidth.toFixed(1)}x${scaledHeight.toFixed(1)} (scale: ${scale.toFixed(3)})`);
     console.log(`Position: (${x.toFixed(1)}, ${y.toFixed(1)})`);
     
     // Set high quality scaling
     this.ctx.imageSmoothingEnabled = true;
     this.ctx.imageSmoothingQuality = 'high';
     
+    // Clear the area where we'll draw (to ensure clean positioning)
+    this.ctx.save();
+    this.ctx.fillStyle = '#FFFFFF';
+    this.ctx.fillRect(x, y, scaledWidth, scaledHeight);
+    this.ctx.restore();
+    
     // Draw the image
     this.ctx.drawImage(img, x, y, scaledWidth, scaledHeight);
     console.log('Content drawn to canvas successfully');
+    
+    // Verify the image was actually drawn
+    const imageData = this.ctx.getImageData(x, y, Math.min(scaledWidth, 10), Math.min(scaledHeight, 10));
+    const hasContent = this.checkPixelData(imageData);
+    console.log('Content verification - image data present:', hasContent);
+    
+    console.log('=== CONTENT POSITIONING END ===');
+  }
+
+  private checkPixelData(imageData: ImageData): boolean {
+    const { data } = imageData;
+    // Check if any pixel is not white
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      
+      // If we find any non-white pixel, there's content
+      if (r !== 255 || g !== 255 || b !== 255) {
+        return true;
+      }
+    }
+    return false;
   }
 
   async createMockImage(width: number, height: number, text: string[]): Promise<HTMLImageElement> {
