@@ -14,16 +14,16 @@ export class BleedProcessor {
     finalHeight: number
   ): Promise<void> {
     console.log('Extending bleed areas by', bleedPixels, 'pixels');
-    
+
     if (bleedPixels === 0) {
       console.log('No bleed margin specified, skipping bleed extension');
       return;
     }
-    
+
     // Get the current canvas data
     const imageData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
     const { data, width, height } = imageData;
-    
+
     // Extend top bleed - copy from the first row of content
     for (let y = 0; y < bleedPixels; y++) {
       for (let x = bleedPixels; x < bleedPixels + finalWidth; x++) {
@@ -81,8 +81,8 @@ export class BleedProcessor {
       }
     }
 
-    // *** New: Flood fill any remaining pure white pixels in the bleed area with adjacent pixel color (from the edge),
-    // ensuring *no* white border remains. This makes up for cases where AI or previous fills left small gaps. ***
+    // --- STRONGER: Flood fill ALL "almost white" pixels in the bleed region:
+    let replacedCount = 0;
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         // Only process in the bleed region (outside main area)
@@ -93,11 +93,11 @@ export class BleedProcessor {
           y >= bleedPixels + finalHeight
         ) {
           const idx = (y * width + x) * 4;
-          // Is this pixel still fully white and fully opaque?
+          const r = data[idx], g = data[idx+1], b = data[idx+2], a = data[idx+3];
+          // Tolerant: Anything that is nearly white and fully or semi-opaque
           if (
-            data[idx] === 255 && data[idx+1] === 255 && data[idx+2] === 255 && data[idx+3] === 255
+            r > 235 && g > 235 && b > 235 && a > 200
           ) {
-            // Copy from closest content edge:
             let srcX = x;
             let srcY = y;
             if (x < bleedPixels) srcX = bleedPixels;
@@ -105,17 +105,22 @@ export class BleedProcessor {
             if (y < bleedPixels) srcY = bleedPixels;
             else if (y >= bleedPixels + finalHeight) srcY = bleedPixels + finalHeight - 1;
             const srcIdx = (srcY * width + srcX) * 4;
+            // Copy from nearest edge content pixel
             data[idx] = data[srcIdx];
             data[idx + 1] = data[srcIdx + 1];
             data[idx + 2] = data[srcIdx + 2];
             data[idx + 3] = data[srcIdx + 3];
+            replacedCount++;
           }
         }
       }
     }
+    if (replacedCount > 0) {
+      console.log(`[BleedProcessor] Filled ${replacedCount} nearly-white pixels in bleed area from nearest edge`);
+    }
 
     // Apply all pixel updates at once
     this.ctx.putImageData(imageData, 0, 0);
-    console.log('Bleed extension (including white padding fix) completed successfully');
+    console.log('Bleed extension (including white/near-white padding fix) completed successfully');
   }
 }
