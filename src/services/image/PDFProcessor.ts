@@ -86,9 +86,9 @@ export class PDFProcessor {
         useSystemFonts: true // Use system fonts as fallback
       });
       
-      // Add timeout to prevent hanging
+      // Add timeout to prevent hanging - properly type the result
       const pdfPromise = loadingTask.promise;
-      const timeoutPromise = new Promise((_, reject) => {
+      const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => reject(new Error('PDF loading timeout after 30 seconds')), 30000);
       });
       
@@ -143,9 +143,9 @@ export class PDFProcessor {
       
       console.log('Starting PDF page render...');
       
-      // Add timeout to prevent hanging
+      // Add timeout to prevent hanging - properly type the result
       const renderPromise = page.render(renderContext).promise;
-      const renderTimeoutPromise = new Promise((_, reject) => {
+      const renderTimeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => reject(new Error('PDF render timeout after 45 seconds')), 45000);
       });
       
