@@ -99,9 +99,9 @@ export class ImageProcessor {
     console.log('Processing image data. Original dimensions:', originalDimensions);
     
     // Calculate dimensions with bleed
-    const finalWidth = this.mmToPixels(parameters.finalDimensions.width, parameters.dpi);
-    const finalHeight = this.mmToPixels(parameters.finalDimensions.height, parameters.dpi);
-    const bleedPixels = this.mmToPixels(parameters.bleedMargin, parameters.dpi);
+    const finalWidth = mmToPixels(parameters.finalDimensions.width, parameters.dpi);
+    const finalHeight = mmToPixels(parameters.finalDimensions.height, parameters.dpi);
+    const bleedPixels = mmToPixels(parameters.bleedMargin, parameters.dpi);
     
     const canvasWidth = finalWidth + (bleedPixels * 2);
     const canvasHeight = finalHeight + (bleedPixels * 2);
@@ -151,7 +151,7 @@ export class ImageProcessor {
     
     // Convert to blob and create URL
     console.log('=== STEP 6: CANVAS CONVERSION ===');
-    const processedImageUrl = await this.canvasToDataURL(this.canvas);
+    const processedImageUrl = canvasToDataURL(this.canvas);
     console.log('Canvas converted to data URL successfully, length:', processedImageUrl.length);
     
     // Validate the output
@@ -184,14 +184,6 @@ export class ImageProcessor {
       }
     }
     return false;
-  }
-
-  private mmToPixels(mm: number, dpi: number): number {
-    return Math.round((mm * dpi) / 25.4);
-  }
-
-  private async canvasToDataURL(canvas: HTMLCanvasElement): Promise<string> {
-    return canvas.toDataURL('image/png', 1.0);
   }
 
   destroy() {
