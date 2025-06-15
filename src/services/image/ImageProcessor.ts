@@ -40,9 +40,24 @@ export class ImageProcessor {
     
     if (file.type === 'pdf') {
       console.log('Processing as PDF file');
-      const img = await this.pdfProcessor.processPDF(file, parameters);
-      console.log('PDF processed, now processing image data');
-      return this.processImageData(img, parameters);
+      try {
+        const img = await this.pdfProcessor.processPDF(file, parameters);
+        console.log('PDF processed successfully, now processing image data');
+        return this.processImageData(img, parameters);
+      } catch (error) {
+        console.error('PDF processing failed:', error);
+        
+        // Create a meaningful error image instead of crashing
+        const errorText = [
+          'PDF Processing Error',
+          `File: ${file.file.name}`,
+          `Error: ${error instanceof Error ? error.message : String(error)}`,
+          'Please try a different PDF file or convert to image format'
+        ];
+        
+        const errorImg = await this.imageRenderer.createMockImage(800, 600, errorText);
+        return this.processImageData(errorImg, parameters);
+      }
     } else {
       console.log('Processing as image file');
       return this.processImage(file, parameters);
