@@ -1,4 +1,3 @@
-
 import { ProcessingParameters, UploadedFile } from "@/types/print";
 import { ProcessingResult, CanvasContext } from "./types";
 import { PDFProcessor } from "./PDFProcessor";
@@ -46,17 +45,15 @@ export class ImageProcessor {
         return this.processImageData(img, parameters);
       } catch (error) {
         console.error('PDF processing failed:', error);
-        
-        // Create a meaningful error image instead of crashing
-        const errorText = [
-          'PDF Processing Error',
-          `File: ${file.file.name}`,
-          `Error: ${error instanceof Error ? error.message : String(error)}`,
-          'Please try a different PDF file or convert to image format'
-        ];
-        
-        const errorImg = await this.imageRenderer.createMockImage(800, 600, errorText);
-        return this.processImageData(errorImg, parameters);
+
+        // Instead of proceeding, throw a specific error
+        // This blocks the process and further export, showing an error in UI.
+        throw new Error(
+          'PDF failed to process. ' +
+          (error instanceof Error ? error.message : String(error)) +
+          ' — You cannot export until a valid PDF is processed. ' +
+          'Try again with a different PDF file or convert your file to an image (PNG/JPG).'
+        );
       }
     } else {
       console.log('Processing as image file');
