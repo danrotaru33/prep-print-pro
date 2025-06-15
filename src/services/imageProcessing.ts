@@ -1,5 +1,8 @@
-
 import { ProcessingParameters, UploadedFile } from "@/types/print";
+import * as pdfjsLib from 'pdfjs-dist';
+
+// Configure PDF.js worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 interface ProcessingResult {
   processedImageUrl: string;
@@ -32,13 +35,63 @@ export class ImageProcessor {
   }
 
   private async processPDF(file: UploadedFile, parameters: ProcessingParameters): Promise<ProcessingResult> {
-    // For PDF, we'll convert first page to image, then process
-    console.log('Processing PDF file');
+    console.log('Processing PDF file - extracting actual content');
     
-    // Create a mock image from PDF for demonstration
-    // In a real implementation, you'd use PDF.js to convert PDF to canvas
-    const mockImageData = await this.createMockImageFromPDF(file, parameters);
-    return this.processImageData(mockImageData, parameters);
+    try {
+      // Convert file to ArrayBuffer for PDF.js
+      const arrayBuffer = await file.file.arrayBuffer();
+      
+      // Load the PDF document
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      console.log(`PDF loaded successfully. Pages: ${pdf.numPages}`);
+      
+      // Get the first page (you could modify this to handle multiple pages)
+      const page = await pdf.getPage(1);
+      
+      // Get the viewport for the page
+      const viewport = page.getViewport({ scale: 2.0 }); // Use 2x scale for better quality
+      
+      // Create a canvas for the PDF page
+      const pdfCanvas = document.createElement('canvas');
+      const pdfContext = pdfCanvas.getContext('2d');
+      if (!pdfContext) {
+        throw new Error('Failed to get PDF canvas context');
+      }
+      
+      pdfCanvas.width = viewport.width;
+      pdfCanvas.height = viewport.height;
+      
+      // Render the PDF page to the canvas
+      const renderContext = {
+        canvasContext: pdfContext,
+        viewport: viewport
+      };
+      
+      await page.render(renderContext).promise;
+      console.log('PDF page rendered to canvas');
+      
+      // Convert the PDF canvas to an image
+      const img = new Image();
+      return new Promise((resolve, reject) => {
+        img.onload = async () => {
+          try {
+            const result = await this.processImageData(img, parameters);
+            resolve(result);
+          } catch (error) {
+            reject(error);
+          }
+        };
+        img.onerror = () => reject(new Error('Failed to load PDF as image'));
+        img.src = pdfCanvas.toDataURL();
+      });
+      
+    } catch (error) {
+      console.error('Error processing PDF:', error);
+      // Fallback to mock if PDF processing fails
+      console.log('Falling back to mock PDF processing');
+      const mockImageData = await this.createMockImageFromPDF(file, parameters);
+      return this.processImageData(mockImageData, parameters);
+    }
   }
 
   private async processImage(file: UploadedFile, parameters: ProcessingParameters): Promise<ProcessingResult> {
@@ -64,6 +117,7 @@ export class ImageProcessor {
 
   private async processImageData(img: HTMLImageElement, parameters: ProcessingParameters): Promise<ProcessingResult> {
     const originalDimensions = { width: img.width, height: img.height };
+    console.log('Processing image data. Original dimensions:', originalDimensions);
     
     // Calculate dimensions with bleed
     const finalWidth = this.mmToPixels(parameters.finalDimensions.width, parameters.dpi);
@@ -72,6 +126,8 @@ export class ImageProcessor {
     
     const canvasWidth = finalWidth + (bleedPixels * 2);
     const canvasHeight = finalHeight + (bleedPixels * 2);
+    
+    console.log(`Canvas dimensions: ${canvasWidth}x${canvasHeight} (${finalWidth}x${finalHeight} + ${bleedPixels}px bleed)`);
     
     // Set up canvas
     this.canvas.width = canvasWidth;
@@ -104,7 +160,7 @@ export class ImageProcessor {
   private async resizeAndPositionContent(img: HTMLImageElement, finalWidth: number, finalHeight: number, bleedPixels: number) {
     console.log('Resizing and positioning content');
     
-    // Calculate scaling to fit within final dimensions
+    // Calculate scaling to fit within final dimensions while maintaining aspect ratio
     const scaleX = finalWidth / img.width;
     const scaleY = finalHeight / img.height;
     const scale = Math.min(scaleX, scaleY);
@@ -116,6 +172,7 @@ export class ImageProcessor {
     const x = bleedPixels + (finalWidth - scaledWidth) / 2;
     const y = bleedPixels + (finalHeight - scaledHeight) / 2;
     
+    console.log(`Drawing image at ${x}, ${y} with dimensions ${scaledWidth}x${scaledHeight} (scale: ${scale})`);
     this.ctx.drawImage(img, x, y, scaledWidth, scaledHeight);
   }
 
@@ -216,7 +273,7 @@ export class ImageProcessor {
 
   private async createMockImageFromPDF(file: UploadedFile, parameters: ProcessingParameters): Promise<HTMLImageElement> {
     // For demonstration, create a mock image
-    // In a real implementation, you'd use PDF.js
+    // This is used as fallback when PDF.js processing fails
     const mockCanvas = document.createElement('canvas');
     const mockCtx = mockCanvas.getContext('2d')!;
     
@@ -230,8 +287,9 @@ export class ImageProcessor {
     mockCtx.fillStyle = '#333';
     mockCtx.font = '24px Arial';
     mockCtx.textAlign = 'center';
-    mockCtx.fillText('PDF Content', 400, 300);
-    mockCtx.fillText(`${parameters.finalDimensions.width}×${parameters.finalDimensions.height}mm`, 400, 350);
+    mockCtx.fillText('PDF Content (Fallback)', 400, 280);
+    mockCtx.fillText(`${parameters.finalDimensions.width}×${parameters.finalDimensions.height}mm`, 400, 320);
+    mockCtx.fillText('PDF.js processing failed', 400, 360);
     
     const img = new Image();
     return new Promise((resolve) => {
