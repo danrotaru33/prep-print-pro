@@ -313,28 +313,40 @@ export class AIBleedProcessor {
     }
   }
 
+  /**
+   * Attempts AI inpainting. 
+   * Now prioritizes HuggingFace LaMa first, and only falls back to OpenAI DALL-E if LaMa fails.
+   */
   private async tryAIInpainting(contextCanvas: HTMLCanvasElement, maskCanvas: HTMLCanvasElement): Promise<HTMLImageElement | null> {
-    console.log('Attempting AI inpainting...');
+    console.log('Attempting AI inpainting, preferring HuggingFace LaMa first...');
 
     try {
       // Convert canvases to base64
       const imageBase64 = contextCanvas.toDataURL('image/png');
       const maskBase64 = maskCanvas.toDataURL('image/png');
 
-      // Try OpenAI DALL-E inpainting first (usually better quality)
+      // HuggingFace LaMa is now the primary inpainting backend
       try {
-        const result = await this.callOpenAIInpainting(imageBase64, maskBase64);
-        if (result) return result;
+        console.log('Calling HuggingFace LaMa (preferred)...');
+        const result = await this.callHuggingFaceLaMa(imageBase64, maskBase64);
+        if (result) {
+          console.log('HuggingFace LaMa inpainting succeeded.');
+          return result;
+        }
       } catch (error) {
-        console.log('OpenAI inpainting failed, trying HuggingFace LaMa...');
+        console.log('HuggingFace LaMa failed, trying OpenAI DALL-E fallback...', error);
       }
 
-      // Fallback to HuggingFace LaMa
+      // Fallback to OpenAI DALL-E
       try {
-        const result = await this.callHuggingFaceLaMa(imageBase64, maskBase64);
-        if (result) return result;
+        console.log('Calling OpenAI DALL-E fallback...');
+        const result = await this.callOpenAIInpainting(imageBase64, maskBase64);
+        if (result) {
+          console.log('OpenAI DALL-E inpainting succeeded as fallback.');
+          return result;
+        }
       } catch (error) {
-        console.log('HuggingFace LaMa failed');
+        console.log('OpenAI inpainting (fallback) failed');
       }
 
       return null;
