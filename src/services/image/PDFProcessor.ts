@@ -13,13 +13,34 @@ export class PDFProcessor {
   private async initializeWorker(): Promise<void> {
     if (this.workerInitialized) return;
 
+    // === BEGIN Enhanced Logging for Asset Path Debugging ===
+    let localWorkerSrc: string | undefined = undefined;
+    try {
+      // Attempt to resolve the local worker asset path
+      localWorkerSrc = new URL('pdfjs-dist/build/pdf.worker.min.js', import.meta.url).href;
+      console.log('[PDFProcessor] Resolved local PDF.js worker src to:', localWorkerSrc);
+
+      // Try a fetch of the worker script to confirm asset exists and is being served
+      const fetchResponse = await fetch(localWorkerSrc, { method: 'GET' });
+      if (!fetchResponse.ok) {
+        throw new Error(`Failed to fetch local worker asset at "${localWorkerSrc}" (status ${fetchResponse.status})`);
+      }
+    } catch (assetError) {
+      console.error('[PDFProcessor] PDF.js worker asset resolution/load error:', assetError);
+      throw new Error(
+        `PDF.js worker asset could not be loaded at "${localWorkerSrc}".
+Please check that "pdf.worker.min.js" is present in your build output and is being served by your dev server. 
+If using Vite, sometimes static dependencies are not copied to the dist folder. 
+Try running \`npm install pdfjs-dist\` or \`bun install pdfjs-dist\`, and make sure nothing is interfering with the import.meta.url resolution.
+You can also try importing and copying the file manually from \`node_modules/pdfjs-dist/build/pdf.worker.min.js\` into your public/static folder for Vite to serve it.
+If this persists, you may need to process your file as PNG/JPG instead of PDF.`
+      );
+    }
+    // === END Enhanced Logging for Asset Path Debugging ===
+
     try {
       console.log('Initializing PDF.js worker for local asset ONLY...');
-
-      // Robust: Use only the local installed worker (no CDN fallback!)
-      const localWorkerSrc = new URL('pdfjs-dist/build/pdf.worker.min.js', import.meta.url).href;
-
-      pdfjsLib.GlobalWorkerOptions.workerSrc = localWorkerSrc;
+      pdfjsLib.GlobalWorkerOptions.workerSrc = localWorkerSrc!;
       console.log('[PDFProcessor] Using local workerSrc:', localWorkerSrc);
 
       // Test: Try to load a minimal doc via worker
@@ -36,7 +57,7 @@ export class PDFProcessor {
       return;
     } catch (error) {
       console.error('Failed to initialize PDF.js worker using local asset:', error);
-      throw new Error('PDF.js worker initialization failed (local asset). PDF export from PDF source will not work.');
+      throw new Error('PDF.js worker initialization failed (local asset). See above logs for details. PDF export from PDF source will not work until this is resolved.');
     }
   }
 
