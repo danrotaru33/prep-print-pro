@@ -19,6 +19,7 @@ export class PDFProcessor {
     try {
       // Convert file to ArrayBuffer for PDF.js
       const arrayBuffer = await file.file.arrayBuffer();
+      console.log('PDF file converted to ArrayBuffer, size:', arrayBuffer.byteLength);
       
       // Load the PDF document
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
@@ -26,9 +27,12 @@ export class PDFProcessor {
       
       // Get the first page (you could modify this to handle multiple pages)
       const page = await pdf.getPage(1);
+      console.log('PDF page loaded');
       
-      // Get the viewport for the page
-      const viewport = page.getViewport({ scale: 2.0 }); // Use 2x scale for better quality
+      // Get the viewport for the page - use higher scale for better quality
+      const scale = 3.0; // Increased scale for better quality
+      const viewport = page.getViewport({ scale });
+      console.log(`PDF viewport: ${viewport.width}x${viewport.height} at scale ${scale}`);
       
       // Create a canvas for the PDF page
       const pdfCanvas = document.createElement('canvas');
@@ -40,25 +44,41 @@ export class PDFProcessor {
       pdfCanvas.width = viewport.width;
       pdfCanvas.height = viewport.height;
       
+      // Set white background for the PDF canvas
+      pdfContext.fillStyle = '#FFFFFF';
+      pdfContext.fillRect(0, 0, viewport.width, viewport.height);
+      
       // Render the PDF page to the canvas
       const renderContext = {
         canvasContext: pdfContext,
         viewport: viewport
       };
       
+      console.log('Starting PDF page render...');
       await page.render(renderContext).promise;
-      console.log('PDF page rendered to canvas');
+      console.log('PDF page rendered to canvas successfully');
       
       // Convert the PDF canvas to an image
       const img = new Image();
       return new Promise((resolve, reject) => {
-        img.onload = () => resolve(img);
-        img.onerror = () => reject(new Error('Failed to load PDF as image'));
-        img.src = pdfCanvas.toDataURL();
+        img.onload = () => {
+          console.log(`PDF converted to image: ${img.width}x${img.height}`);
+          resolve(img);
+        };
+        img.onerror = (error) => {
+          console.error('Failed to load PDF as image:', error);
+          reject(new Error('Failed to load PDF as image'));
+        };
+        // Use high quality settings
+        img.src = pdfCanvas.toDataURL('image/png', 1.0);
       });
       
     } catch (error) {
       console.error('Error processing PDF:', error);
+      // Provide more detailed error logging
+      if (error instanceof Error) {
+        console.error('PDF processing error details:', error.message, error.stack);
+      }
       // Fallback to mock if PDF processing fails
       console.log('Falling back to mock PDF processing');
       return this.createMockImageFromPDF(file, parameters);
@@ -66,10 +86,13 @@ export class PDFProcessor {
   }
 
   private async createMockImageFromPDF(file: UploadedFile, parameters: ProcessingParameters): Promise<HTMLImageElement> {
+    console.log('Creating mock image for PDF fallback');
     const mockText = [
-      'PDF Content (Fallback)',
-      `${parameters.finalDimensions.width}×${parameters.finalDimensions.height}mm`,
-      'PDF.js processing failed'
+      'PDF Content (Processing Failed)',
+      `File: ${file.file.name}`,
+      `Size: ${Math.round(file.file.size / 1024)}KB`,
+      `Target: ${parameters.finalDimensions.width}×${parameters.finalDimensions.height}mm`,
+      'PDF.js processing encountered an error'
     ];
     
     return this.imageRenderer.createMockImage(800, 600, mockText);
