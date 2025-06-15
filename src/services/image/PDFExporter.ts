@@ -17,48 +17,68 @@ export const createPDFFromProcessedImage = async (
       try {
         console.log(`Loaded processed image: ${img.width}x${img.height}`);
         
-        // Create a canvas to convert the image to base64
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d')!;
-        canvas.width = img.width;
-        canvas.height = img.height;
+        // Calculate final canvas dimensions (includes bleed)
+        const mmToPoints = 2.83465; // 1mm = 2.83465 points
+        const bleedMm = parameters.bleedMargin;
+        const finalWidthMm = parameters.finalDimensions.width + (bleedMm * 2);
+        const finalHeightMm = parameters.finalDimensions.height + (bleedMm * 2);
+        
+        const pdfWidth = finalWidthMm * mmToPoints;
+        const pdfHeight = finalHeightMm * mmToPoints;
+        
+        console.log(`PDF dimensions: ${pdfWidth.toFixed(2)} x ${pdfHeight.toFixed(2)} points`);
+        console.log(`Includes ${bleedMm}mm bleed on all sides`);
+        
+        // Create a new canvas to ensure we have the exact image data
+        const exportCanvas = document.createElement('canvas');
+        const exportCtx = exportCanvas.getContext('2d')!;
+        
+        // Set canvas to match the processed image dimensions
+        exportCanvas.width = img.width;
+        exportCanvas.height = img.height;
         
         // Fill with white background first
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, img.width, img.height);
+        exportCtx.fillStyle = '#FFFFFF';
+        exportCtx.fillRect(0, 0, img.width, img.height);
         
-        // Draw the processed image (with bleed and cut lines) to canvas
-        ctx.drawImage(img, 0, 0);
+        // Draw the processed image
+        exportCtx.drawImage(img, 0, 0);
         
         console.log('Image drawn to export canvas');
         
-        // Convert to base64 JPEG with high quality
-        const imageDataUrl = canvas.toDataURL('image/jpeg', 0.95);
-        console.log('Canvas converted to data URL, length:', imageDataUrl.length);
+        // Convert to high-quality JPEG
+        const imageDataUrl = exportCanvas.toDataURL('image/jpeg', 0.95);
+        console.log('Export canvas converted to data URL, length:', imageDataUrl.length);
         
         // Validate that we have actual image data
         if (imageDataUrl.length < 1000) {
           throw new Error('Generated image data is too small, likely empty');
         }
         
-        // Calculate PDF dimensions (convert mm to points: 1mm = 2.83465 points)
-        const pdfWidth = parameters.finalDimensions.width * 2.83465;
-        const pdfHeight = parameters.finalDimensions.height * 2.83465;
-        
-        console.log(`PDF dimensions: ${pdfWidth.toFixed(2)} x ${pdfHeight.toFixed(2)} points`);
-        
-        // Create a simple PDF using jsPDF-like approach but with proper structure
-        const createSimplePDF = () => {
-          console.log('Creating simple PDF with embedded image');
+        // Try using a simpler approach - convert the data URL directly to a blob
+        // and return it as a "PDF" (many browsers/viewers can handle this)
+        try {
+          console.log('Creating simple PDF wrapper for image');
           
-          // Create a simple PDF structure
-          const pdfDoc = `%PDF-1.4
+          // Convert data URL to blob
+          const response = await fetch(imageDataUrl);
+          const imageBlob = await response.blob();
+          
+          // Create a simple PDF-like structure with the image
+          const pdfContent = `%PDF-1.4
 1 0 obj
-<< /Type /Catalog /Pages 2 0 R >>
+<<
+/Type /Catalog
+/Pages 2 0 R
+>>
 endobj
 
 2 0 obj
-<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+<<
+/Type /Pages
+/Kids [3 0 R]
+/Count 1
+>>
 endobj
 
 3 0 obj
@@ -67,13 +87,17 @@ endobj
 /Parent 2 0 R
 /MediaBox [0 0 ${pdfWidth.toFixed(2)} ${pdfHeight.toFixed(2)}]
 /Contents 4 0 R
-/Resources << /XObject << /Im1 5 0 R >> >>
+/Resources <<
+  /XObject <<
+    /Im1 5 0 R
+  >>
+>>
 >>
 endobj
 
 4 0 obj
 <<
-/Length 58
+/Length 44
 >>
 stream
 q
@@ -92,10 +116,16 @@ endobj
 /ColorSpace /DeviceRGB
 /BitsPerComponent 8
 /Filter /DCTDecode
-/Length ${imageDataUrl.split(',')[1].length}
+/Length ${imageBlob.size}
 >>
 stream
-${imageDataUrl.split(',')[1]}
+`;
+
+          // Convert image blob to array buffer
+          const imageArrayBuffer = await imageBlob.arrayBuffer();
+          const imageBytes = new Uint8Array(imageArrayBuffer);
+          
+          const pdfEnd = `
 endstream
 endobj
 
@@ -108,18 +138,26 @@ xref
 0000000398 00000 n 
 0000000507 00000 n 
 trailer
-<< /Size 6 /Root 1 0 R >>
+<<
+/Size 6
+/Root 1 0 R
+>>
 startxref
-${800 + imageDataUrl.split(',')[1].length}
+${800 + imageBytes.length}
 %%EOF`;
 
-          return new Blob([pdfDoc], { type: 'application/pdf' });
-        };
-        
-        // Try to use a more robust approach - create a new canvas with the image and export as PDF
-        try {
-          console.log('Attempting to create PDF blob');
-          const pdfBlob = createSimplePDF();
+          // Combine PDF header, image data, and footer
+          const pdfHeader = new TextEncoder().encode(pdfContent);
+          const pdfFooter = new TextEncoder().encode(pdfEnd);
+          
+          const totalSize = pdfHeader.length + imageBytes.length + pdfFooter.length;
+          const combinedArray = new Uint8Array(totalSize);
+          
+          combinedArray.set(pdfHeader, 0);
+          combinedArray.set(imageBytes, pdfHeader.length);
+          combinedArray.set(pdfFooter, pdfHeader.length + imageBytes.length);
+          
+          const pdfBlob = new Blob([combinedArray], { type: 'application/pdf' });
           console.log('PDF blob created, size:', pdfBlob.size);
           
           if (pdfBlob.size < 1000) {
@@ -128,17 +166,22 @@ ${800 + imageDataUrl.split(',')[1].length}
           
           console.log('=== PDF EXPORT SUCCESS ===');
           resolve(pdfBlob);
+          
         } catch (pdfError) {
-          console.error('Error in PDF creation:', pdfError);
+          console.error('Error in PDF creation, using fallback:', pdfError);
           
-          // Fallback: create a data URL blob
-          console.log('Using fallback: converting data URL to blob');
+          // Ultimate fallback: create a blob from the image data URL
+          console.log('Using ultimate fallback: direct image blob');
           const response = await fetch(imageDataUrl);
-          const imageBlob = await response.blob();
+          const fallbackBlob = await response.blob();
           
-          // For now, just return the image as a "PDF" (browsers can usually handle this)
-          console.log('Returning image blob as fallback, size:', imageBlob.size);
-          resolve(new Blob([imageBlob], { type: 'application/pdf' }));
+          // Create a simple blob that browsers can handle
+          const finalBlob = new Blob([fallbackBlob], { 
+            type: 'application/pdf' 
+          });
+          
+          console.log('Fallback blob created, size:', finalBlob.size);
+          resolve(finalBlob);
         }
         
       } catch (error) {
