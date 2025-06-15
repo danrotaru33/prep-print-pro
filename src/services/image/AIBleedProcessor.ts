@@ -318,38 +318,38 @@ export class AIBleedProcessor {
 
   /**
    * Attempts AI inpainting. 
-   * Now prioritizes HuggingFace LaMa first, and only falls back to OpenAI DALL-E if LaMa fails.
+   * Now prioritizes OpenAI DALL-E first, and only falls back to HuggingFace LaMa if DALL-E fails.
    */
   private async tryAIInpainting(contextCanvas: HTMLCanvasElement, maskCanvas: HTMLCanvasElement, bleedPrompt?: string): Promise<HTMLImageElement | null> {
-    console.log('Attempting AI inpainting, preferring HuggingFace LaMa first...');
+    console.log('Attempting AI inpainting, preferring OpenAI DALL-E first...');
 
     try {
       // Convert canvases to base64
       const imageBase64 = contextCanvas.toDataURL('image/png');
       const maskBase64 = maskCanvas.toDataURL('image/png');
 
-      // HuggingFace LaMa is now the primary inpainting backend, with prompt support
+      // OpenAI DALL-E is now the primary inpainting backend
       try {
-        console.log('Calling HuggingFace LaMa (preferred)...');
-        const result = await this.callHuggingFaceLaMa(imageBase64, maskBase64, bleedPrompt);
-        if (result) {
-          console.log('HuggingFace LaMa inpainting succeeded.');
-          return result;
-        }
-      } catch (error) {
-        console.log('HuggingFace LaMa failed, trying OpenAI DALL-E fallback...', error);
-      }
-
-      // Fallback to OpenAI DALL-E
-      try {
-        console.log('Calling OpenAI DALL-E fallback...');
+        console.log('Calling OpenAI DALL-E (preferred)...');
         const result = await this.callOpenAIInpainting(imageBase64, maskBase64, bleedPrompt);
         if (result) {
-          console.log('OpenAI DALL-E inpainting succeeded as fallback.');
+          console.log('OpenAI DALL-E inpainting succeeded.');
           return result;
         }
       } catch (error) {
-        console.log('OpenAI inpainting (fallback) failed');
+        console.log('OpenAI DALL-E failed, trying HuggingFace LaMa fallback...', error);
+      }
+
+      // Fallback to HuggingFace LaMa
+      try {
+        console.log('Calling HuggingFace LaMa fallback...');
+        const result = await this.callHuggingFaceLaMa(imageBase64, maskBase64, bleedPrompt);
+        if (result) {
+          console.log('HuggingFace LaMa inpainting succeeded as fallback.');
+          return result;
+        }
+      } catch (error) {
+        console.log('HuggingFace LaMa (fallback) failed');
       }
 
       return null;
