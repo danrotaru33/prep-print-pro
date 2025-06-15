@@ -3,14 +3,60 @@ import * as pdfjsLib from 'pdfjs-dist';
 import { UploadedFile, ProcessingParameters } from "@/types/print";
 import { ImageRenderer } from "./ImageRenderer";
 
-// Configure PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
-
 export class PDFProcessor {
   private imageRenderer: ImageRenderer;
+  private workerInitialized: boolean = false;
 
   constructor(imageRenderer: ImageRenderer) {
     this.imageRenderer = imageRenderer;
+  }
+
+  private async initializeWorker(): Promise<void> {
+    if (this.workerInitialized) return;
+    
+    try {
+      console.log('Initializing PDF.js worker...');
+      
+      // Try multiple worker sources for better reliability
+      const workerSources = [
+        // Use npm package worker first (most reliable)
+        new URL('pdfjs-dist/build/pdf.worker.min.js', import.meta.url).href,
+        // Fallback to jsdelivr CDN
+        `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`,
+        // Last resort: cloudflare CDN
+        `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`
+      ];
+      
+      for (const workerSrc of workerSources) {
+        try {
+          console.log('Trying worker source:', workerSrc);
+          pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
+          
+          // Test if worker loads by creating a simple document
+          const testData = new Uint8Array([
+            0x25, 0x50, 0x44, 0x46, 0x2D, 0x31, 0x2E, 0x34, 0x0A, 0x25, 0xC4, 0xE5, 0xF2, 0xE5, 0xEB, 0xA7, 0xF3, 0xA0, 0xD0, 0xC4, 0xC6, 0x0A
+          ]);
+          
+          const loadingTask = pdfjsLib.getDocument({ data: testData });
+          await Promise.race([
+            loadingTask.promise,
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Worker test timeout')), 3000))
+          ]);
+          
+          console.log('PDF.js worker initialized successfully with source:', workerSrc);
+          this.workerInitialized = true;
+          return;
+        } catch (error) {
+          console.warn(`Failed to initialize worker with ${workerSrc}:`, error);
+          continue;
+        }
+      }
+      
+      throw new Error('All PDF.js worker sources failed to load');
+    } catch (error) {
+      console.error('Failed to initialize PDF.js worker:', error);
+      throw new Error('PDF.js worker initialization failed. Please check your internet connection.');
+    }
   }
 
   async processPDF(file: UploadedFile, parameters: ProcessingParameters): Promise<HTMLImageElement> {
@@ -18,6 +64,9 @@ export class PDFProcessor {
     console.log('Processing PDF file:', file.file.name);
     
     try {
+      // Initialize worker first
+      await this.initializeWorker();
+      
       // Convert file to ArrayBuffer for PDF.js
       const arrayBuffer = await file.file.arrayBuffer();
       console.log('PDF file converted to ArrayBuffer, size:', arrayBuffer.byteLength);
@@ -26,15 +75,24 @@ export class PDFProcessor {
         throw new Error('PDF file appears to be empty');
       }
       
-      // Load the PDF document with better error handling
+      // Load the PDF document with better configuration
       console.log('Loading PDF document...');
       const loadingTask = pdfjsLib.getDocument({ 
         data: arrayBuffer,
-        verbosity: 0, // Reduce PDF.js logging
-        standardFontDataUrl: `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/standard_fonts/`
+        verbosity: 0,
+        useWorkerFetch: false, // Disable worker fetch to avoid network issues
+        isEvalSupported: false, // Disable eval for security
+        disableFontFace: false, // Keep fonts enabled for better rendering
+        useSystemFonts: true // Use system fonts as fallback
       });
       
-      const pdf = await loadingTask.promise;
+      // Add timeout to prevent hanging
+      const pdfPromise = loadingTask.promise;
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('PDF loading timeout after 30 seconds')), 30000);
+      });
+      
+      const pdf = await Promise.race([pdfPromise, timeoutPromise]);
       console.log(`PDF loaded successfully. Pages: ${pdf.numPages}`);
       
       if (pdf.numPages === 0) {
@@ -46,8 +104,8 @@ export class PDFProcessor {
       const page = await pdf.getPage(1);
       console.log('PDF page loaded successfully');
       
-      // Get the viewport for the page - use higher scale for better quality
-      const scale = 2.0; // Reduced from 3.0 for better compatibility
+      // Get the viewport for the page - use scale for good quality
+      const scale = 2.0;
       const viewport = page.getViewport({ scale });
       console.log(`PDF viewport: ${viewport.width}x${viewport.height} at scale ${scale}`);
       
@@ -57,7 +115,11 @@ export class PDFProcessor {
       
       // Create a canvas for the PDF page
       const pdfCanvas = document.createElement('canvas');
-      const pdfContext = pdfCanvas.getContext('2d');
+      const pdfContext = pdfCanvas.getContext('2d', {
+        alpha: false, // Disable alpha for better performance
+        willReadFrequently: true // Optimize for frequent reading
+      });
+      
       if (!pdfContext) {
         throw new Error('Failed to get PDF canvas context');
       }
@@ -75,18 +137,19 @@ export class PDFProcessor {
       const renderContext = {
         canvasContext: pdfContext,
         viewport: viewport,
-        background: 'white'
+        background: 'white',
+        intent: 'display' // Optimize for display
       };
       
       console.log('Starting PDF page render...');
       
       // Add timeout to prevent hanging
       const renderPromise = page.render(renderContext).promise;
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('PDF render timeout after 30 seconds')), 30000);
+      const renderTimeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('PDF render timeout after 45 seconds')), 45000);
       });
       
-      await Promise.race([renderPromise, timeoutPromise]);
+      await Promise.race([renderPromise, renderTimeoutPromise]);
       console.log('PDF page rendered to canvas successfully');
       
       // Verify canvas has content
@@ -103,7 +166,7 @@ export class PDFProcessor {
       return new Promise((resolve, reject) => {
         const timeoutId = setTimeout(() => {
           reject(new Error('Image load timeout'));
-        }, 10000);
+        }, 15000);
         
         img.onload = () => {
           clearTimeout(timeoutId);
@@ -118,8 +181,8 @@ export class PDFProcessor {
           reject(new Error('Failed to load PDF as image'));
         };
         
-        // Use high quality settings
-        const dataUrl = pdfCanvas.toDataURL('image/png', 1.0);
+        // Use high quality settings with better compression
+        const dataUrl = pdfCanvas.toDataURL('image/png', 0.95);
         console.log('Canvas converted to data URL, length:', dataUrl.length);
         
         if (dataUrl.length < 1000) {
@@ -134,13 +197,19 @@ export class PDFProcessor {
       console.error('=== PDF PROCESSING ERROR ===');
       console.error('Error processing PDF:', error);
       
-      // Provide more detailed error logging
+      // Provide more detailed error information
+      let errorMessage = 'PDF processing failed';
       if (error instanceof Error) {
-        console.error('PDF processing error details:', error.message, error.stack);
+        if (error.message.includes('worker') || error.message.includes('fetch')) {
+          errorMessage = 'PDF.js worker loading failed. Please check your internet connection and try again.';
+        } else if (error.message.includes('timeout')) {
+          errorMessage = 'PDF processing took too long. The file might be too complex or large.';
+        } else {
+          errorMessage = `PDF processing failed: ${error.message}`;
+        }
       }
       
-      // Instead of falling back to mock, throw the error to be handled upstream
-      throw new Error(`PDF processing failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(errorMessage);
     }
   }
 
@@ -163,18 +232,5 @@ export class PDFProcessor {
     
     console.log('Non-white pixels found:', nonWhitePixels);
     return nonWhitePixels > 10; // Need at least 10 non-white pixels to consider it valid content
-  }
-
-  private async createMockImageFromPDF(file: UploadedFile, parameters: ProcessingParameters): Promise<HTMLImageElement> {
-    console.log('Creating mock image for PDF fallback');
-    const mockText = [
-      'PDF Content (Processing Failed)',
-      `File: ${file.file.name}`,
-      `Size: ${Math.round(file.file.size / 1024)}KB`,
-      `Target: ${parameters.finalDimensions.width}×${parameters.finalDimensions.height}mm`,
-      'PDF.js processing encountered an error'
-    ];
-    
-    return this.imageRenderer.createMockImage(800, 600, mockText);
   }
 }
