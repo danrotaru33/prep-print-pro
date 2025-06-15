@@ -51,10 +51,7 @@ export class ImageRenderer {
     
     // Draw the image
     this.ctx.drawImage(img, x, y, scaledWidth, scaledHeight);
-    console.log('Content drawn to canvas');
-    
-    // REMOVED: Debug border that was overwriting the content
-    // The debug border was covering the actual image content
+    console.log('Content drawn to canvas successfully');
   }
 
   async createMockImage(width: number, height: number, text: string[]): Promise<HTMLImageElement> {

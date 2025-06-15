@@ -1,3 +1,4 @@
+
 import { ProcessingParameters, UploadedFile } from "@/types/print";
 import { ProcessingResult, CanvasContext } from "./types";
 import { PDFProcessor } from "./PDFProcessor";
@@ -45,7 +46,7 @@ export class ImageProcessor {
   }
 
   private async processImage(file: UploadedFile, parameters: ProcessingParameters): Promise<ProcessingResult> {
-    console.log('Processing image file');
+    console.log('Processing image file:', file.file.name);
     
     const img = new Image();
     const imageUrl = URL.createObjectURL(file.file);
@@ -53,7 +54,7 @@ export class ImageProcessor {
     return new Promise((resolve, reject) => {
       img.onload = async () => {
         try {
-          console.log(`Image loaded: ${img.width}x${img.height}`);
+          console.log(`Image loaded successfully: ${img.width}x${img.height}`);
           const result = await this.processImageData(img, parameters);
           URL.revokeObjectURL(imageUrl);
           resolve(result);
@@ -63,11 +64,12 @@ export class ImageProcessor {
           reject(error);
         }
       };
-      img.onerror = () => {
-        console.error('Failed to load image');
+      img.onerror = (error) => {
+        console.error('Failed to load image:', error);
         URL.revokeObjectURL(imageUrl);
         reject(new Error('Failed to load image'));
       };
+      img.crossOrigin = 'anonymous';
       img.src = imageUrl;
     });
   }
@@ -89,22 +91,27 @@ export class ImageProcessor {
     
     // Set up canvas
     this.imageRenderer.setupCanvas(canvasWidth, canvasHeight);
+    console.log('Canvas setup completed');
     
     // Resize and position the main content
     console.log('Starting content positioning...');
     await this.imageRenderer.resizeAndPositionContent(img, finalWidth, finalHeight, bleedPixels);
+    console.log('Content positioning completed');
     
     // Extend bleed areas
     console.log('Extending bleed areas...');
     await this.bleedProcessor.extendBleedAreas(bleedPixels, finalWidth, finalHeight);
+    console.log('Bleed extension completed');
     
     // Add cut lines
     console.log('Adding cut lines...');
     this.cutLineRenderer.addCutLines(parameters, finalWidth, finalHeight, bleedPixels);
+    console.log('Cut lines added');
     
     // Convert to blob and create URL
     console.log('Converting canvas to data URL...');
     const processedImageUrl = await this.canvasToDataURL(this.canvas);
+    console.log('Canvas converted to data URL successfully');
     
     console.log('Image processing complete');
     return {

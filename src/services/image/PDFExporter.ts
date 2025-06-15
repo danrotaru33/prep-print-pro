@@ -5,7 +5,7 @@ export const createPDFFromProcessedImage = async (
   processedImageUrl: string,
   parameters: ProcessingParameters
 ): Promise<Blob> => {
-  console.log('Creating PDF from processed image');
+  console.log('Creating PDF from processed image URL:', processedImageUrl);
   
   // Load the processed image to get its actual data
   const img = new Image();
@@ -14,22 +14,31 @@ export const createPDFFromProcessedImage = async (
   return new Promise((resolve, reject) => {
     img.onload = async () => {
       try {
+        console.log(`Loaded processed image: ${img.width}x${img.height}`);
+        
         // Create a canvas to convert the image to base64
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d')!;
         canvas.width = img.width;
         canvas.height = img.height;
+        
+        // Draw the processed image (with bleed and cut lines) to canvas
         ctx.drawImage(img, 0, 0);
         
-        // Convert to base64 JPEG
-        const imageDataBase64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
-        const imageBytes = imageDataBase64.length;
+        // Convert to base64 JPEG with high quality
+        const imageDataUrl = canvas.toDataURL('image/jpeg', 0.95);
+        const imageDataBase64 = imageDataUrl.split(',')[1];
+        const imageBytes = atob(imageDataBase64).length;
+        
+        console.log(`Image converted to base64, size: ${imageBytes} bytes`);
         
         // Calculate PDF dimensions (convert mm to points: 1mm = 2.83465 points)
         const pdfWidth = parameters.finalDimensions.width * 2.83465;
         const pdfHeight = parameters.finalDimensions.height * 2.83465;
         
-        // Create a proper PDF with the actual image
+        console.log(`PDF dimensions: ${pdfWidth.toFixed(2)} x ${pdfHeight.toFixed(2)} points`);
+        
+        // Create PDF with the actual processed image
         const pdfContent = `%PDF-1.4
 1 0 obj
 <<
@@ -105,7 +114,7 @@ startxref
 ${800 + imageBytes}
 %%EOF`;
         
-        console.log('PDF created with actual image data');
+        console.log('PDF created successfully with processed image data');
         resolve(new Blob([pdfContent], { type: 'application/pdf' }));
       } catch (error) {
         console.error('Error creating PDF:', error);
@@ -114,8 +123,8 @@ ${800 + imageBytes}
     };
     
     img.onerror = (error) => {
-      console.error('Error loading processed image:', error);
-      reject(new Error('Failed to load processed image'));
+      console.error('Error loading processed image for PDF creation:', error);
+      reject(new Error('Failed to load processed image for PDF creation'));
     };
     
     img.src = processedImageUrl;

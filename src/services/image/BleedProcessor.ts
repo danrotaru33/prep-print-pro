@@ -15,7 +15,10 @@ export class BleedProcessor {
   ): Promise<void> {
     console.log('Extending bleed areas by', bleedPixels, 'pixels');
     
-    if (bleedPixels === 0) return;
+    if (bleedPixels === 0) {
+      console.log('No bleed margin specified, skipping bleed extension');
+      return;
+    }
     
     // Get the current canvas data
     const imageData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
@@ -24,6 +27,15 @@ export class BleedProcessor {
     // Create a copy to work with
     const newData = new Uint8ClampedArray(data);
     
+    console.log('Processing bleed extension for content area:', {
+      contentX: bleedPixels,
+      contentY: bleedPixels,
+      contentWidth: finalWidth,
+      contentHeight: finalHeight,
+      totalWidth: width,
+      totalHeight: height
+    });
+    
     // Extend top bleed - copy from the first row of content
     for (let y = 0; y < bleedPixels; y++) {
       for (let x = bleedPixels; x < bleedPixels + finalWidth; x++) {
@@ -31,8 +43,8 @@ export class BleedProcessor {
         const sourceIndex = ((sourceY * width) + x) * 4;
         const targetIndex = ((y * width) + x) * 4;
         
-        // Only copy if source has actual content (not white background)
-        if (data[sourceIndex] !== 255 || data[sourceIndex + 1] !== 255 || data[sourceIndex + 2] !== 255) {
+        // Copy pixel data (R, G, B, A)
+        if (sourceIndex < data.length - 3) {
           newData[targetIndex] = data[sourceIndex];         // R
           newData[targetIndex + 1] = data[sourceIndex + 1]; // G
           newData[targetIndex + 2] = data[sourceIndex + 2]; // B
@@ -48,8 +60,8 @@ export class BleedProcessor {
         const sourceIndex = ((sourceY * width) + x) * 4;
         const targetIndex = ((y * width) + x) * 4;
         
-        // Only copy if source has actual content (not white background)
-        if (data[sourceIndex] !== 255 || data[sourceIndex + 1] !== 255 || data[sourceIndex + 2] !== 255) {
+        // Copy pixel data (R, G, B, A)
+        if (sourceIndex < data.length - 3) {
           newData[targetIndex] = data[sourceIndex];
           newData[targetIndex + 1] = data[sourceIndex + 1];
           newData[targetIndex + 2] = data[sourceIndex + 2];
@@ -65,8 +77,8 @@ export class BleedProcessor {
         const sourceIndex = ((y * width) + sourceX) * 4;
         const targetIndex = ((y * width) + x) * 4;
         
-        // Only copy if source has actual content (not white background)
-        if (data[sourceIndex] !== 255 || data[sourceIndex + 1] !== 255 || data[sourceIndex + 2] !== 255) {
+        // Copy pixel data (R, G, B, A)
+        if (sourceIndex < data.length - 3) {
           newData[targetIndex] = data[sourceIndex];
           newData[targetIndex + 1] = data[sourceIndex + 1];
           newData[targetIndex + 2] = data[sourceIndex + 2];
@@ -82,8 +94,8 @@ export class BleedProcessor {
         const sourceIndex = ((y * width) + sourceX) * 4;
         const targetIndex = ((y * width) + x) * 4;
         
-        // Only copy if source has actual content (not white background)
-        if (data[sourceIndex] !== 255 || data[sourceIndex + 1] !== 255 || data[sourceIndex + 2] !== 255) {
+        // Copy pixel data (R, G, B, A)
+        if (sourceIndex < data.length - 3) {
           newData[targetIndex] = data[sourceIndex];
           newData[targetIndex + 1] = data[sourceIndex + 1];
           newData[targetIndex + 2] = data[sourceIndex + 2];
@@ -96,6 +108,6 @@ export class BleedProcessor {
     const newImageData = new ImageData(newData, width, height);
     this.ctx.putImageData(newImageData, 0, 0);
     
-    console.log('Bleed extension completed');
+    console.log('Bleed extension completed successfully');
   }
 }
