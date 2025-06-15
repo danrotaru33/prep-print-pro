@@ -44,6 +44,7 @@ export class AIBleedProcessor {
   /**
    * New: Extract ALL BLEED regions (top, bottom, left, right),
    * not just what is not covered by content.
+   * This version uses larger context slices for AI inpainting.
    */
   private extractAllBleedMarginAreas(
     bleedPixels: number,
@@ -51,6 +52,9 @@ export class AIBleedProcessor {
     finalHeight: number
   ) {
     const areas = [];
+
+    // Use a bigger context slice so the AI sees a chunkier buffer
+    const CONTEXT_SLICE_PIXELS = Math.max(120, Math.floor(Math.min(finalWidth, finalHeight) / 3));
 
     // Full canvas area includes bleed
     const canvasWidth = finalWidth + bleedPixels * 2;
@@ -66,7 +70,7 @@ export class AIBleedProcessor {
       contextX: 0,
       contextY: bleedPixels,
       contextWidth: canvasWidth,
-      contextHeight: Math.min(40, finalHeight) // Just a small context slice from inside
+      contextHeight: Math.min(CONTEXT_SLICE_PIXELS, finalHeight)
     });
     // Bottom bleed area (full width, last bleedPixels rows)
     areas.push({
@@ -76,9 +80,9 @@ export class AIBleedProcessor {
       width: canvasWidth,
       height: bleedPixels,
       contextX: 0,
-      contextY: bleedPixels + finalHeight - Math.min(40, finalHeight),
+      contextY: bleedPixels + finalHeight - Math.min(CONTEXT_SLICE_PIXELS, finalHeight),
       contextWidth: canvasWidth,
-      contextHeight: Math.min(40, finalHeight)
+      contextHeight: Math.min(CONTEXT_SLICE_PIXELS, finalHeight)
     });
     // Left bleed area (full height, first bleedPixels columns)
     areas.push({
@@ -89,7 +93,7 @@ export class AIBleedProcessor {
       height: finalHeight,
       contextX: bleedPixels,
       contextY: bleedPixels,
-      contextWidth: Math.min(40, finalWidth),
+      contextWidth: Math.min(CONTEXT_SLICE_PIXELS, finalWidth),
       contextHeight: finalHeight
     });
     // Right bleed area (full height, last bleedPixels columns)
@@ -99,9 +103,9 @@ export class AIBleedProcessor {
       y: bleedPixels,
       width: bleedPixels,
       height: finalHeight,
-      contextX: bleedPixels + finalWidth - Math.min(40, finalWidth),
+      contextX: bleedPixels + finalWidth - Math.min(CONTEXT_SLICE_PIXELS, finalWidth),
       contextY: bleedPixels,
-      contextWidth: Math.min(40, finalWidth),
+      contextWidth: Math.min(CONTEXT_SLICE_PIXELS, finalWidth),
       contextHeight: finalHeight
     });
 
@@ -466,9 +470,9 @@ export class AIBleedProcessor {
   }
 
   /**
-   * After all AI is done, fill ALL bleed pixels still nearly-white with the content pixel from the nearest edge.
-   * This prevents any white lines/gaps, even if AI leaves small holes or soft edges.
-   * This works like the BleedProcessor fallback, but forcibly runs after AI.
+   * After all AI is done, fill ALL bleed pixels still nearly-white with the content pixel from the nearest content pixel in any direction.
+   * This is a true nearest-neighbor color copy, not just from the content edge.
+   * WARNING: Computationally intense for large margins or outputs, but ensures all bleed is filled with real pixels.
    */
   private finalFillBleedFromEdge(
     bleedPixels: number,
@@ -480,43 +484,82 @@ export class AIBleedProcessor {
     const imageData = this.ctx.getImageData(0, 0, canvasWidth, canvasHeight);
     const { data, width, height } = imageData;
 
-    let replacedCount = 0;
+    // First, create a mask of which pixels should be filled:
+    // - In the bleed margin, and
+    // - White or nearly white
+    const isBleedWhite = (x: number, y: number) => {
+      // In bleed area?
+      if (
+        x < bleedPixels ||
+        x >= bleedPixels + finalWidth ||
+        y < bleedPixels ||
+        y >= bleedPixels + finalHeight
+      ) {
+        const idx = (y * width + x) * 4;
+        const r = data[idx], g = data[idx + 1], b = data[idx + 2], a = data[idx + 3];
+        // "Nearly white" and opaque pixel: should be filled
+        return r > 235 && g > 235 && b > 235 && a > 200;
+      }
+      return false;
+    };
 
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        // Only process pixels in the BLEED region outside the main content
-        if (
-          x < bleedPixels ||
-          x >= bleedPixels + finalWidth ||
-          y < bleedPixels ||
-          y >= bleedPixels + finalHeight
-        ) {
-          const idx = (y * width + x) * 4;
-          const r = data[idx], g = data[idx + 1], b = data[idx + 2], a = data[idx + 3];
-          // "Nearly white" and opaque pixel: should be filled
-          if (r > 235 && g > 235 && b > 235 && a > 200) {
-            // Get nearest content edge pixel in main area
-            let srcX = x;
-            let srcY = y;
-            if (x < bleedPixels) srcX = bleedPixels;
-            else if (x >= bleedPixels + finalWidth) srcX = bleedPixels + finalWidth - 1;
-            if (y < bleedPixels) srcY = bleedPixels;
-            else if (y >= bleedPixels + finalHeight) srcY = bleedPixels + finalHeight - 1;
-            const srcIdx = (srcY * width + srcX) * 4;
-            data[idx] = data[srcIdx];
-            data[idx + 1] = data[srcIdx + 1];
-            data[idx + 2] = data[srcIdx + 2];
-            data[idx + 3] = data[srcIdx + 3];
-            replacedCount++;
-          }
+    // Precompute content pixel locations (any pixel inside content box that is not white)
+    const contentPixels: Array<[number, number]> = [];
+    for (let y = bleedPixels; y < bleedPixels + finalHeight; y++) {
+      for (let x = bleedPixels; x < bleedPixels + finalWidth; x++) {
+        const idx = (y * width + x) * 4;
+        const r = data[idx], g = data[idx + 1], b = data[idx + 2], a = data[idx + 3];
+        // Consider "real" content if pixel is NOT nearly white and not transparent
+        if (!(r > 235 && g > 235 && b > 235) && a > 24) {
+          contentPixels.push([x, y]);
         }
       }
     }
-    if (replacedCount > 0) {
-      console.log(`[AIBleedProcessor] [finalFillBleedFromEdge] Filled ${replacedCount} white/near-white bleed pixels from nearest content edge`);
+
+    // For fast lookup, if there are no content pixels, skip fill
+    if (contentPixels.length === 0) {
+      console.warn('[AIBleedProcessor] No content pixels found for fallback bleed fill');
+      return;
+    }
+
+    let filledCount = 0;
+
+    // For each pixel in the bleed margin that is white, find the nearest content pixel
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (!isBleedWhite(x, y)) continue;
+
+        // Search for nearest content pixel (brute-force, could be sped up with kd-tree!)
+        let nearestDist = Infinity;
+        let nearestIdx = -1;
+        for (let i = 0; i < contentPixels.length; i++) {
+          const [cx, cy] = contentPixels[i];
+          const dx = cx - x, dy = cy - y;
+          const dist = dx * dx + dy * dy;
+          if (dist < nearestDist) {
+            nearestDist = dist;
+            nearestIdx = i;
+            if (dist === 0) break; // can't beat zero!
+          }
+        }
+        if (nearestIdx !== -1) {
+          const [srcX, srcY] = contentPixels[nearestIdx];
+          const srcIdx = (srcY * width + srcX) * 4;
+          const idx = (y * width + x) * 4;
+          data[idx]     = data[srcIdx];
+          data[idx + 1] = data[srcIdx + 1];
+          data[idx + 2] = data[srcIdx + 2];
+          data[idx + 3] = data[srcIdx + 3];
+          filledCount++;
+        }
+      }
+    }
+
+    if (filledCount > 0) {
+      console.log(`[AIBleedProcessor] [finalFillBleedFromEdge] True nearest-neighbor: filled ${filledCount} margin pixels with nearest content color`);
       this.ctx.putImageData(imageData, 0, 0);
     } else {
-      console.log('[AIBleedProcessor] [finalFillBleedFromEdge] No white bleed pixels needed filling');
+      console.log('[AIBleedProcessor] [finalFillBleedFromEdge] No margin pixels needed filling');
     }
   }
 
