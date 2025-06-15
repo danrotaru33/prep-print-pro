@@ -32,6 +32,9 @@ export class AIBleedProcessor {
         await this.processMarginArea(area, null);
       }
 
+      // NEW: After AI, forcibly fill any "white" bleed area left with nearest edge pixels (content-aware clone)
+      this.finalFillBleedFromEdge(bleedPixels, finalWidth, finalHeight);
+
       // Debug: mark any areas that are suspiciously still white
       this.debugFillUnfilledBleed(bleedPixels, finalWidth, finalHeight);
 
@@ -463,6 +466,61 @@ export class AIBleedProcessor {
 
     // Apply to main canvas
     this.ctx.drawImage(tempCanvas, area.x, area.y);
+  }
+
+  /**
+   * After all AI is done, fill ALL bleed pixels still nearly-white with the content pixel from the nearest edge.
+   * This prevents any white lines/gaps, even if AI leaves small holes or soft edges.
+   * This works like the BleedProcessor fallback, but forcibly runs after AI.
+   */
+  private finalFillBleedFromEdge(
+    bleedPixels: number,
+    finalWidth: number,
+    finalHeight: number
+  ): void {
+    const canvasWidth = finalWidth + bleedPixels * 2;
+    const canvasHeight = finalHeight + bleedPixels * 2;
+    const imageData = this.ctx.getImageData(0, 0, canvasWidth, canvasHeight);
+    const { data, width, height } = imageData;
+
+    let replacedCount = 0;
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        // Only process pixels in the BLEED region outside the main content
+        if (
+          x < bleedPixels ||
+          x >= bleedPixels + finalWidth ||
+          y < bleedPixels ||
+          y >= bleedPixels + finalHeight
+        ) {
+          const idx = (y * width + x) * 4;
+          const r = data[idx], g = data[idx + 1], b = data[idx + 2], a = data[idx + 3];
+          // "Nearly white" and opaque pixel: should be filled
+          if (r > 235 && g > 235 && b > 235 && a > 200) {
+            // Get nearest content edge pixel in main area
+            let srcX = x;
+            let srcY = y;
+            if (x < bleedPixels) srcX = bleedPixels;
+            else if (x >= bleedPixels + finalWidth) srcX = bleedPixels + finalWidth - 1;
+            if (y < bleedPixels) srcY = bleedPixels;
+            else if (y >= bleedPixels + finalHeight) srcY = bleedPixels + finalHeight - 1;
+            const srcIdx = (srcY * width + srcX) * 4;
+            data[idx] = data[srcIdx];
+            data[idx + 1] = data[srcIdx + 1];
+            data[idx + 2] = data[srcIdx + 2];
+            data[idx + 3] = data[srcIdx + 3];
+            replacedCount++;
+          }
+        }
+      }
+    }
+    if (replacedCount > 0) {
+      console.log(`[AIBleedProcessor] [finalFillBleedFromEdge] Filled ${replacedCount} white/near-white bleed pixels from nearest content edge`);
+      this.ctx.putImageData(imageData, 0, 0);
+    } else {
+      console.log('[AIBleedProcessor] [finalFillBleedFromEdge] No white bleed pixels needed filling');
+    }
   }
 
   /** 
