@@ -1,4 +1,3 @@
-
 import { CanvasContext } from "./types";
 
 export class AIBleedProcessor {
@@ -10,31 +9,26 @@ export class AIBleedProcessor {
     this.ctx = ctx;
   }
 
+  /**
+   * Main AI-powered bleed extension logic.
+   * Extend *all* white padding in bleed margin, not just "content-aware" edges.
+   */
   async processIntelligentBleed(
     bleedPixels: number,
     finalWidth: number,
     finalHeight: number
   ): Promise<void> {
     console.log('=== AI BLEED PROCESSING START ===');
-    console.log(`Processing intelligent bleed with ${bleedPixels}px margin`);
+    console.log(`Processing intelligent bleed with ${bleedPixels}px margin (now extends entire white padding)`);
 
     try {
-      // Step 1: Detect content boundaries
-      const contentBounds = this.detectContentBounds(bleedPixels, finalWidth, finalHeight);
-      console.log('Content bounds detected:', contentBounds);
+      // Step 1: Target the entire bleed areas -- all four sides!
+      const marginAreas = this.extractAllBleedMarginAreas(bleedPixels, finalWidth, finalHeight);
+      console.log(`Extracted ${marginAreas.length} (FULL bleed) margin areas to fill with AI.`);
 
-      if (!contentBounds) {
-        console.log('No content detected, falling back to white padding');
-        return;
-      }
-
-      // Step 2: Extract margin areas that need filling
-      const marginAreas = this.extractMarginAreas(contentBounds, bleedPixels, finalWidth, finalHeight);
-      console.log(`Extracted ${marginAreas.length} margin areas`);
-
-      // Step 3: Process each margin area with AI
+      // Step 2: Process each margin area with AI
       for (const area of marginAreas) {
-        await this.processMarginArea(area, contentBounds);
+        await this.processMarginArea(area, null);
       }
 
       console.log('=== AI BLEED PROCESSING COMPLETE ===');
@@ -42,6 +36,73 @@ export class AIBleedProcessor {
       console.error('AI bleed processing failed, keeping white padding:', error);
       // Fallback: keep original white padding
     }
+  }
+
+  /**
+   * New: Extract ALL BLEED regions (top, bottom, left, right),
+   * not just what is not covered by content.
+   */
+  private extractAllBleedMarginAreas(
+    bleedPixels: number,
+    finalWidth: number,
+    finalHeight: number
+  ) {
+    const areas = [];
+
+    // Full canvas area includes bleed
+    const canvasWidth = finalWidth + bleedPixels * 2;
+    const canvasHeight = finalHeight + bleedPixels * 2;
+
+    // Top bleed area
+    areas.push({
+      type: 'top',
+      x: 0,
+      y: 0,
+      width: canvasWidth,
+      height: bleedPixels,
+      contextX: 0,
+      contextY: bleedPixels,
+      contextWidth: canvasWidth,
+      contextHeight: Math.min(40, finalHeight) // Just a small context slice from inside
+    });
+    // Bottom bleed area
+    areas.push({
+      type: 'bottom',
+      x: 0,
+      y: bleedPixels + finalHeight,
+      width: canvasWidth,
+      height: bleedPixels,
+      contextX: 0,
+      contextY: bleedPixels + finalHeight - Math.min(40, finalHeight),
+      contextWidth: canvasWidth,
+      contextHeight: Math.min(40, finalHeight)
+    });
+    // Left bleed area
+    areas.push({
+      type: 'left',
+      x: 0,
+      y: bleedPixels,
+      width: bleedPixels,
+      height: finalHeight,
+      contextX: bleedPixels,
+      contextY: bleedPixels,
+      contextWidth: Math.min(40, finalWidth),
+      contextHeight: finalHeight
+    });
+    // Right bleed area
+    areas.push({
+      type: 'right',
+      x: bleedPixels + finalWidth,
+      y: bleedPixels,
+      width: bleedPixels,
+      height: finalHeight,
+      contextX: bleedPixels + finalWidth - Math.min(40, finalWidth),
+      contextY: bleedPixels,
+      contextWidth: Math.min(40, finalWidth),
+      contextHeight: finalHeight
+    });
+
+    return areas;
   }
 
   private detectContentBounds(
