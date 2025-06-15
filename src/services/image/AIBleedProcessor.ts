@@ -1,4 +1,9 @@
+
 import { CanvasContext } from "./types";
+import { MarginAreaExtractor, MarginArea } from "./MarginAreaExtractor";
+import { AIInpaintingService } from "./AIInpaintingService";
+import { BleedFallbackFiller } from "./BleedFallbackFiller";
+import { debugFillUnfilledBleed } from "./debug/DebugFillUnfilledBleed";
 
 export class AIBleedProcessor {
   private ctx: CanvasRenderingContext2D;
@@ -9,32 +14,6 @@ export class AIBleedProcessor {
     this.ctx = ctx;
   }
 
-  /**
-   * Helper: Ensures any async action resolves in X ms or rejects.
-   */
-  private async withTimeout<T>(promise: Promise<T>, ms: number, taskLabel: string): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        console.warn(`[AI_TIMEOUT] Task "${taskLabel}" timed out after ${ms}ms`);
-        reject(new Error(`Timed out: ${taskLabel}`));
-      }, ms);
-
-      promise
-        .then((value) => {
-          clearTimeout(timer);
-          resolve(value);
-        })
-        .catch((err) => {
-          clearTimeout(timer);
-          reject(err);
-        });
-    });
-  }
-
-  /**
-   * Main AI-powered bleed extension logic.
-   * Extend *all* white padding in bleed margin, not just "content-aware" edges.
-   */
   async processIntelligentBleed(
     bleedPixels: number,
     finalWidth: number,
@@ -45,27 +24,25 @@ export class AIBleedProcessor {
     console.log(`Processing intelligent bleed with ${bleedPixels}px margin (prompt: ${bleedPrompt || "none"})`);
 
     try {
-      const marginAreas = this.extractAllBleedMarginAreas(bleedPixels, finalWidth, finalHeight);
+      const marginAreas = MarginAreaExtractor.extractAllBleedMarginAreas(bleedPixels, finalWidth, finalHeight);
       console.log(`Extracted ${marginAreas.length} (FULL bleed) margin areas to fill with AI.`);
 
-      // Step 2: Process each margin area with AI and prompt, with per-request timeout and logging
       for (const area of marginAreas) {
         console.log(`[AIBleedProcessor] Requesting AI fill for area:`, area);
         try {
-          await this.withTimeout(
-            this.processMarginArea(area, null, bleedPrompt), 
-            30000, // 30 seconds max per request
+          await AIInpaintingService.withTimeout(
+            this.processMarginArea(area, bleedPrompt),
+            30000,
             `[${area.type}] AI inpainting`
           );
           console.log(`[AIBleedProcessor] Finished AI fill for ${area.type} margin`);
-        } catch (aiErr) {
-          // If timeout or API fails, skip this margin but report error
+        } catch (aiErr: any) {
           console.warn(`[AIBleedProcessor] Failed or timed out AI fill for margin "${area.type}" (${aiErr.message}), skipping to fallback`);
         }
       }
 
-      this.finalFillBleedFromEdge(bleedPixels, finalWidth, finalHeight);
-      this.debugFillUnfilledBleed(bleedPixels, finalWidth, finalHeight);
+      BleedFallbackFiller.finalFillBleedFromEdge(this.ctx, bleedPixels, finalWidth, finalHeight);
+      debugFillUnfilledBleed(this.ctx, bleedPixels, finalWidth, finalHeight);
 
       console.log('=== AI BLEED PROCESSING COMPLETE ===');
     } catch (error) {
@@ -73,625 +50,88 @@ export class AIBleedProcessor {
     }
   }
 
-  /**
-   * New: Extract ALL BLEED regions (top, bottom, left, right),
-   * not just what is not covered by content.
-   * This version uses larger context slices for AI inpainting.
-   */
-  private extractAllBleedMarginAreas(
-    bleedPixels: number,
-    finalWidth: number,
-    finalHeight: number
-  ) {
-    const areas = [];
-
-    // Use a bigger context slice so the AI sees a chunkier buffer
-    const CONTEXT_SLICE_PIXELS = Math.max(120, Math.floor(Math.min(finalWidth, finalHeight) / 3));
-
-    // Full canvas area includes bleed
-    const canvasWidth = finalWidth + bleedPixels * 2;
-    const canvasHeight = finalHeight + bleedPixels * 2;
-
-    // Top bleed area (full width, first bleedPixels rows)
-    areas.push({
-      type: 'top',
-      x: 0,
-      y: 0,
-      width: canvasWidth,
-      height: bleedPixels,
-      contextX: 0,
-      contextY: bleedPixels,
-      contextWidth: canvasWidth,
-      contextHeight: Math.min(CONTEXT_SLICE_PIXELS, finalHeight)
-    });
-    // Bottom bleed area (full width, last bleedPixels rows)
-    areas.push({
-      type: 'bottom',
-      x: 0,
-      y: bleedPixels + finalHeight,
-      width: canvasWidth,
-      height: bleedPixels,
-      contextX: 0,
-      contextY: bleedPixels + finalHeight - Math.min(CONTEXT_SLICE_PIXELS, finalHeight),
-      contextWidth: canvasWidth,
-      contextHeight: Math.min(CONTEXT_SLICE_PIXELS, finalHeight)
-    });
-    // Left bleed area (full height, first bleedPixels columns)
-    areas.push({
-      type: 'left',
-      x: 0,
-      y: bleedPixels,
-      width: bleedPixels,
-      height: finalHeight,
-      contextX: bleedPixels,
-      contextY: bleedPixels,
-      contextWidth: Math.min(CONTEXT_SLICE_PIXELS, finalWidth),
-      contextHeight: finalHeight
-    });
-    // Right bleed area (full height, last bleedPixels columns)
-    areas.push({
-      type: 'right',
-      x: bleedPixels + finalWidth,
-      y: bleedPixels,
-      width: bleedPixels,
-      height: finalHeight,
-      contextX: bleedPixels + finalWidth - Math.min(CONTEXT_SLICE_PIXELS, finalWidth),
-      contextY: bleedPixels,
-      contextWidth: Math.min(CONTEXT_SLICE_PIXELS, finalWidth),
-      contextHeight: finalHeight
-    });
-
-    return areas;
-  }
-
-  private detectContentBounds(
-    bleedPixels: number,
-    finalWidth: number,
-    finalHeight: number
-  ): { left: number; top: number; right: number; bottom: number } | null {
-    console.log('Detecting content boundaries...');
-    
-    const contentArea = {
-      x: bleedPixels,
-      y: bleedPixels,
-      width: finalWidth,
-      height: finalHeight
-    };
-
-    const imageData = this.ctx.getImageData(
-      contentArea.x,
-      contentArea.y,
-      contentArea.width,
-      contentArea.height
-    );
-
-    let minX = contentArea.width;
-    let minY = contentArea.height;
-    let maxX = 0;
-    let maxY = 0;
-
-    // Scan for non-white pixels
-    for (let y = 0; y < contentArea.height; y++) {
-      for (let x = 0; x < contentArea.width; x++) {
-        const index = (y * contentArea.width + x) * 4;
-        const r = imageData.data[index];
-        const g = imageData.data[index + 1];
-        const b = imageData.data[index + 2];
-        const a = imageData.data[index + 3];
-
-        // Check if pixel is not white (with some tolerance)
-        if (r < 250 || g < 250 || b < 250 || a < 250) {
-          minX = Math.min(minX, x);
-          minY = Math.min(minY, y);
-          maxX = Math.max(maxX, x);
-          maxY = Math.max(maxY, y);
-        }
-      }
-    }
-
-    if (minX >= maxX || minY >= maxY) {
-      return null; // No content found
-    }
-
-    return {
-      left: bleedPixels + minX,
-      top: bleedPixels + minY,
-      right: bleedPixels + maxX,
-      bottom: bleedPixels + maxY
-    };
-  }
-
-  private extractMarginAreas(
-    contentBounds: { left: number; top: number; right: number; bottom: number },
-    bleedPixels: number,
-    finalWidth: number,
-    finalHeight: number
-  ) {
-    const areas = [];
-    const canvasWidth = finalWidth + (bleedPixels * 2);
-    const canvasHeight = finalHeight + (bleedPixels * 2);
-
-    // Top margin
-    if (contentBounds.top > bleedPixels) {
-      areas.push({
-        type: 'top',
-        x: bleedPixels,
-        y: bleedPixels,
-        width: finalWidth,
-        height: contentBounds.top - bleedPixels,
-        contextX: bleedPixels,
-        contextY: contentBounds.top,
-        contextWidth: finalWidth,
-        contextHeight: Math.min(50, contentBounds.bottom - contentBounds.top)
-      });
-    }
-
-    // Bottom margin
-    if (contentBounds.bottom < bleedPixels + finalHeight) {
-      areas.push({
-        type: 'bottom',
-        x: bleedPixels,
-        y: contentBounds.bottom,
-        width: finalWidth,
-        height: (bleedPixels + finalHeight) - contentBounds.bottom,
-        contextX: bleedPixels,
-        contextY: Math.max(contentBounds.bottom - 50, contentBounds.top),
-        contextWidth: finalWidth,
-        contextHeight: Math.min(50, contentBounds.bottom - contentBounds.top)
-      });
-    }
-
-    // Left margin
-    if (contentBounds.left > bleedPixels) {
-      areas.push({
-        type: 'left',
-        x: bleedPixels,
-        y: bleedPixels,
-        width: contentBounds.left - bleedPixels,
-        height: finalHeight,
-        contextX: contentBounds.left,
-        contextY: bleedPixels,
-        contextWidth: Math.min(50, contentBounds.right - contentBounds.left),
-        contextHeight: finalHeight
-      });
-    }
-
-    // Right margin
-    if (contentBounds.right < bleedPixels + finalWidth) {
-      areas.push({
-        type: 'right',
-        x: contentBounds.right,
-        y: bleedPixels,
-        width: (bleedPixels + finalWidth) - contentBounds.right,
-        height: finalHeight,
-        contextX: Math.max(contentBounds.right - 50, contentBounds.left),
-        contextY: bleedPixels,
-        contextWidth: Math.min(50, contentBounds.right - contentBounds.left),
-        contextHeight: finalHeight
-      });
-    }
-
-    return areas;
-  }
-
-  private async processMarginArea(area: any, contentBounds: any, bleedPrompt?: string): Promise<void> {
+  private async processMarginArea(area: MarginArea, bleedPrompt?: string): Promise<void> {
     console.log(`Processing ${area.type} margin area... Area:`, JSON.stringify(area, null, 2));
 
-    try {
-      // Create context image for AI inpainting
-      const contextCanvas = document.createElement('canvas');
-      const contextCtx = contextCanvas.getContext('2d')!;
-      
-      // Size for AI processing (reasonable for API limits)
-      const maxDimension = 512;
-      const scale = Math.min(
-        maxDimension / Math.max(area.width + area.contextWidth, area.height + area.contextHeight),
-        1
-      );
+    // Create context image for AI inpainting
+    const contextCanvas = document.createElement('canvas');
+    const contextCtx = contextCanvas.getContext('2d')!;
 
-      contextCanvas.width = Math.round((area.width + area.contextWidth) * scale);
-      contextCanvas.height = Math.round((area.height + area.contextHeight) * scale);
+    const maxDimension = 512;
+    const scale = Math.min(
+      maxDimension / Math.max(area.width + area.contextWidth, area.height + area.contextHeight),
+      1
+    );
 
-      // Fill with white background
-      contextCtx.fillStyle = '#FFFFFF';
-      contextCtx.fillRect(0, 0, contextCanvas.width, contextCanvas.height);
+    contextCanvas.width = Math.round((area.width + area.contextWidth) * scale);
+    contextCanvas.height = Math.round((area.height + area.contextHeight) * scale);
 
-      // Draw context (existing content) scaled
-      const sourceX = Math.min(area.x, area.contextX);
-      const sourceY = Math.min(area.y, area.contextY);
-      const sourceWidth = Math.max(area.x + area.width, area.contextX + area.contextWidth) - sourceX;
-      const sourceHeight = Math.max(area.y + area.height, area.contextY + area.contextHeight) - sourceY;
+    contextCtx.fillStyle = '#FFFFFF';
+    contextCtx.fillRect(0, 0, contextCanvas.width, contextCanvas.height);
 
-      contextCtx.drawImage(
-        this.canvas,
-        sourceX, sourceY, sourceWidth, sourceHeight,
-        0, 0, contextCanvas.width, contextCanvas.height
-      );
+    const sourceX = Math.min(area.x, area.contextX);
+    const sourceY = Math.min(area.y, area.contextY);
+    const sourceWidth = Math.max(area.x + area.width, area.contextX + area.contextWidth) - sourceX;
+    const sourceHeight = Math.max(area.y + area.height, area.contextY + area.contextHeight) - sourceY;
 
-      // Show in devtools
-      console.log(`[AIInpaint] contextCanvas area for ${area.type}`, contextCanvas.toDataURL().slice(0,80)+'...');
+    contextCtx.drawImage(
+      this.canvas,
+      sourceX, sourceY, sourceWidth, sourceHeight,
+      0, 0, contextCanvas.width, contextCanvas.height
+    );
 
-      // Create mask for the area to fill
-      const maskCanvas = document.createElement('canvas');
-      maskCanvas.width = contextCanvas.width;
-      maskCanvas.height = contextCanvas.height;
-      const maskCtx = maskCanvas.getContext('2d')!;
-      
-      // Black background (masked area)
-      maskCtx.fillStyle = '#000000';
-      maskCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
-      
-      // White area to fill (the margin area)
-      maskCtx.fillStyle = '#FFFFFF';
-      const fillX = Math.round((area.x - sourceX) * scale);
-      const fillY = Math.round((area.y - sourceY) * scale);
-      const fillWidth = Math.round(area.width * scale);
-      const fillHeight = Math.round(area.height * scale);
-      maskCtx.fillRect(fillX, fillY, fillWidth, fillHeight);
+    // Create mask for the area to fill
+    const maskCanvas = document.createElement('canvas');
+    maskCanvas.width = contextCanvas.width;
+    maskCanvas.height = contextCanvas.height;
+    const maskCtx = maskCanvas.getContext('2d')!;
 
-      console.log(`[AIInpaint] maskCanvas for ${area.type}`, maskCanvas.toDataURL().slice(0,80)+'...');
+    maskCtx.fillStyle = '#000000';
+    maskCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
 
-      // Try AI inpainting with prompt and timeout is now managed by processIntelligentBleed
-      const filledImage = await this.tryAIInpainting(contextCanvas, maskCanvas, bleedPrompt);
-      
-      if (filledImage) {
-        // Extract and apply the filled area back to main canvas
-        this.applyFilledArea(filledImage, area, sourceX, sourceY, sourceWidth, sourceHeight, scale);
-        console.log(`Successfully filled ${area.type} margin with AI`);
-      } else {
-        console.log(`AI inpainting failed for ${area.type} margin, keeping white`);
-      }
+    maskCtx.fillStyle = '#FFFFFF';
+    const fillX = Math.round((area.x - sourceX) * scale);
+    const fillY = Math.round((area.y - sourceY) * scale);
+    const fillWidth = Math.round(area.width * scale);
+    const fillHeight = Math.round(area.height * scale);
+    maskCtx.fillRect(fillX, fillY, fillWidth, fillHeight);
 
-    } catch (error) {
-      console.error(`Error processing ${area.type} margin:`, error);
-      // Keep original white margin on error
-    }
-  }
+    // Use inpaint service
+    const filledImage = await AIInpaintingService.tryAIInpainting(contextCanvas, maskCanvas, bleedPrompt);
 
-  /**
-   * Attempts AI inpainting. 
-   * Now prioritizes OpenAI DALL-E first, and only falls back to HuggingFace LaMa if DALL-E fails.
-   */
-  private async tryAIInpainting(contextCanvas: HTMLCanvasElement, maskCanvas: HTMLCanvasElement, bleedPrompt?: string): Promise<HTMLImageElement | null> {
-    console.log('Attempting AI inpainting, preferring OpenAI DALL-E first...');
-
-    try {
-      // Convert canvases to base64
-      const imageBase64 = contextCanvas.toDataURL('image/png');
-      const maskBase64 = maskCanvas.toDataURL('image/png');
-
-      // OpenAI DALL-E is now the primary inpainting backend
-      try {
-        console.log('Calling OpenAI DALL-E (preferred)...');
-        // --- ENSURE TIMEOUT ALSO FOR API CALL (for extra safety) ---
-        const result = await this.withTimeout(
-          this.callOpenAIInpainting(imageBase64, maskBase64, bleedPrompt),
-          30000, // 30s max per OpenAI call
-          "OpenAI DALL-E API"
-        );
-        if (result) {
-          console.log('OpenAI DALL-E inpainting succeeded.');
-          return result;
-        }
-      } catch (error: any) {
-        console.log('OpenAI DALL-E failed or timed out, trying HuggingFace LaMa fallback...', error?.message || error);
-      }
-
-      // Fallback to HuggingFace LaMa
-      try {
-        console.log('Calling HuggingFace LaMa fallback...');
-        const result = await this.withTimeout(
-          this.callHuggingFaceLaMa(imageBase64, maskBase64, bleedPrompt),
-          30000, // 30s per LaMa call as well
-          "HuggingFace LaMa API"
-        );
-
-        if (result) {
-          console.log('HuggingFace LaMa inpainting succeeded as fallback.');
-          return result;
-        }
-      } catch (error: any) {
-        console.log('HuggingFace LaMa (fallback) failed or timed out', error?.message || error);
-      }
-
-      return null;
-    } catch (error) {
-      console.error('AI inpainting completely failed:', error);
-      return null;
-    }
-  }
-
-  private async callOpenAIInpainting(imageBase64: string, maskBase64: string, prompt?: string): Promise<HTMLImageElement | null> {
-    // Call the Supabase edge function for OpenAI DALL-E inpainting
-    console.log('Calling OpenAI DALL-E inpainting...');
-    
-    try {
-      const response = await fetch('https://rvipdpzpeqbmdpavhojs.supabase.co/functions/v1/inpaint-openai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          image: imageBase64,
-          mask: maskBase64,
-          prompt: prompt || "extend the background content naturally, maintain style and colors"
-        })
-      });
-
-      if (!response.ok) throw new Error('OpenAI API failed');
-      
-      const data = await response.json();
-      
-      if (!data.success) {
-        throw new Error(data.error || 'OpenAI inpainting failed');
-      }
-      
-      const img = new Image();
-      return new Promise((resolve, reject) => {
-        img.onload = () => resolve(img);
-        img.onerror = () => reject(new Error('Failed to load AI result'));
-        img.src = data.result;
-        
-        // Timeout after 10 seconds
-        setTimeout(() => reject(new Error('AI request timeout')), 10000);
-      });
-    } catch (error) {
-      console.error('OpenAI inpainting error:', error);
-      return null;
-    }
-  }
-
-  private async callHuggingFaceLaMa(imageBase64: string, maskBase64: string, prompt?: string): Promise<HTMLImageElement | null> {
-    // Call the Supabase edge function for HuggingFace LaMa
-    console.log('Calling HuggingFace LaMa...');
-    
-    try {
-      const response = await fetch('https://rvipdpzpeqbmdpavhojs.supabase.co/functions/v1/inpaint-huggingface', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          image: imageBase64,
-          mask: maskBase64,
-          prompt: prompt // << pass the prompt, which edge function may use in the future
-        })
-      });
-
-      if (!response.ok) throw new Error('HuggingFace API failed');
-      
-      const data = await response.json();
-      
-      if (!data.success) {
-        throw new Error(data.error || 'HuggingFace inpainting failed');
-      }
-      
-      const img = new Image();
-      return new Promise((resolve, reject) => {
-        img.onload = () => resolve(img);
-        img.onerror = () => reject(new Error('Failed to load AI result'));
-        img.src = data.result;
-        
-        // Timeout after 10 seconds
-        setTimeout(() => reject(new Error('AI request timeout')), 10000);
-      });
-    } catch (error) {
-      console.error('HuggingFace LaMa error:', error);
-      return null;
+    if (filledImage) {
+      this.applyFilledArea(filledImage, area, sourceX, sourceY, sourceWidth, sourceHeight, scale);
+      console.log(`Successfully filled ${area.type} margin with AI`);
+    } else {
+      console.log(`AI inpainting failed for ${area.type} margin, keeping white`);
     }
   }
 
   private applyFilledArea(
     filledImage: HTMLImageElement,
-    area: any,
+    area: MarginArea,
     sourceX: number,
     sourceY: number,
     sourceWidth: number,
     sourceHeight: number,
     scale: number
   ): void {
-    console.log('Applying filled area back to main canvas...');
-
-    // Create temporary canvas to extract just the filled portion
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = Math.round(area.width);
     tempCanvas.height = Math.round(area.height);
     const tempCtx = tempCanvas.getContext('2d')!;
 
-    // Calculate coordinates in the filled image
     const fillX = (area.x - sourceX) * scale;
     const fillY = (area.y - sourceY) * scale;
     const fillWidth = area.width * scale;
     const fillHeight = area.height * scale;
 
-    // Draw the relevant portion from the filled image
     tempCtx.drawImage(
       filledImage,
       fillX, fillY, fillWidth, fillHeight,
       0, 0, tempCanvas.width, tempCanvas.height
     );
 
-    // Apply to main canvas
     this.ctx.drawImage(tempCanvas, area.x, area.y);
-  }
-
-  /**
-   * After all AI is done, fill ALL bleed pixels still nearly-white with the content pixel from the nearest content pixel in any direction.
-   * This is a true nearest-neighbor color copy, not just from the content edge.
-   * WARNING: Computationally intense for large margins or outputs, but ensures all bleed is filled with real pixels.
-   */
-  private finalFillBleedFromEdge(
-    bleedPixels: number,
-    finalWidth: number,
-    finalHeight: number
-  ): void {
-    const canvasWidth = finalWidth + bleedPixels * 2;
-    const canvasHeight = finalHeight + bleedPixels * 2;
-    const imageData = this.ctx.getImageData(0, 0, canvasWidth, canvasHeight);
-    const { data, width, height } = imageData;
-
-    // First, create a mask of which pixels should be filled:
-    // - In the bleed margin, and
-    // - White or nearly white
-    const isBleedWhite = (x: number, y: number) => {
-      // In bleed area?
-      if (
-        x < bleedPixels ||
-        x >= bleedPixels + finalWidth ||
-        y < bleedPixels ||
-        y >= bleedPixels + finalHeight
-      ) {
-        const idx = (y * width + x) * 4;
-        const r = data[idx], g = data[idx + 1], b = data[idx + 2], a = data[idx + 3];
-        // "Nearly white" and opaque pixel: should be filled
-        return r > 235 && g > 235 && b > 235 && a > 200;
-      }
-      return false;
-    };
-
-    // Precompute content pixel locations (any pixel inside content box that is not white)
-    const contentPixels: Array<[number, number]> = [];
-    for (let y = bleedPixels; y < bleedPixels + finalHeight; y++) {
-      for (let x = bleedPixels; x < bleedPixels + finalWidth; x++) {
-        const idx = (y * width + x) * 4;
-        const r = data[idx], g = data[idx + 1], b = data[idx + 2], a = data[idx + 3];
-        // Consider "real" content if pixel is NOT nearly white and not transparent
-        if (!(r > 235 && g > 235 && b > 235) && a > 24) {
-          contentPixels.push([x, y]);
-        }
-      }
-    }
-
-    // For fast lookup, if there are no content pixels, skip fill
-    if (contentPixels.length === 0) {
-      console.warn('[AIBleedProcessor] No content pixels found for fallback bleed fill');
-      return;
-    }
-
-    let filledCount = 0;
-
-    // For each pixel in the bleed margin that is white, find the nearest content pixel
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        if (!isBleedWhite(x, y)) continue;
-
-        // Search for nearest content pixel (brute-force, could be sped up with kd-tree!)
-        let nearestDist = Infinity;
-        let nearestIdx = -1;
-        for (let i = 0; i < contentPixels.length; i++) {
-          const [cx, cy] = contentPixels[i];
-          const dx = cx - x, dy = cy - y;
-          const dist = dx * dx + dy * dy;
-          if (dist < nearestDist) {
-            nearestDist = dist;
-            nearestIdx = i;
-            if (dist === 0) break; // can't beat zero!
-          }
-        }
-        if (nearestIdx !== -1) {
-          const [srcX, srcY] = contentPixels[nearestIdx];
-          const srcIdx = (srcY * width + srcX) * 4;
-          const idx = (y * width + x) * 4;
-          data[idx]     = data[srcIdx];
-          data[idx + 1] = data[srcIdx + 1];
-          data[idx + 2] = data[srcIdx + 2];
-          data[idx + 3] = data[srcIdx + 3];
-          filledCount++;
-        }
-      }
-    }
-
-    if (filledCount > 0) {
-      console.log(`[AIBleedProcessor] [finalFillBleedFromEdge] True nearest-neighbor: filled ${filledCount} margin pixels with nearest content color`);
-      this.ctx.putImageData(imageData, 0, 0);
-    } else {
-      console.log('[AIBleedProcessor] [finalFillBleedFromEdge] No margin pixels needed filling');
-    }
-  }
-
-  /** 
-   * Extra visible debug: Fill unfilled (still white) bleed margins with semi-transparent hotpink.
-   * This makes it obvious what margins haven't been filled.
-   */
-  private debugFillUnfilledBleed(bleedPixels: number, finalWidth: number, finalHeight: number): void {
-    // Only for debugging, won't affect print—you can remove later
-    const canvasWidth = finalWidth + bleedPixels * 2;
-    const canvasHeight = finalHeight + bleedPixels * 2;
-    let outCount = 0;
-    const imageData = this.ctx.getImageData(0, 0, canvasWidth, canvasHeight);
-    const data = imageData.data;
-    // If too many white pixels, we highlight the margin
-    let isTopWhite = true;
-    let isBottomWhite = true;
-    let isLeftWhite = true;
-    let isRightWhite = true;
-    // Check top
-    for (let y = 0; y < bleedPixels; y++) {
-      for (let x = 0; x < canvasWidth; x++) {
-        const idx = (y * canvasWidth + x) * 4;
-        if (data[idx] !== 255 || data[idx+1] !== 255 || data[idx+2] !== 255) {
-          isTopWhite = false; break;
-        }
-      }
-      if (!isTopWhite) break;
-    }
-    // Check bottom
-    for (let y = canvasHeight-bleedPixels; y < canvasHeight; y++) {
-      for (let x = 0; x < canvasWidth; x++) {
-        const idx = (y * canvasWidth + x) * 4;
-        if (data[idx] !== 255 || data[idx+1] !== 255 || data[idx+2] !== 255) {
-          isBottomWhite = false; break;
-        }
-      }
-      if (!isBottomWhite) break;
-    }
-    // Check left
-    for (let x = 0; x < bleedPixels; x++) {
-      for (let y = 0; y < canvasHeight; y++) {
-        const idx = (y * canvasWidth + x) * 4;
-        if (data[idx] !== 255 || data[idx+1] !== 255 || data[idx+2] !== 255) {
-          isLeftWhite = false; break;
-        }
-      }
-      if (!isLeftWhite) break;
-    }
-    // Check right
-    for (let x = canvasWidth-bleedPixels; x < canvasWidth; x++) {
-      for (let y = 0; y < canvasHeight; y++) {
-        const idx = (y * canvasWidth + x) * 4;
-        if (data[idx] !== 255 || data[idx+1] !== 255 || data[idx+2] !== 255) {
-          isRightWhite = false; break;
-        }
-      }
-      if (!isRightWhite) break;
-    }
-
-    // Overlay color if found pure white
-    this.ctx.save();
-    this.ctx.globalAlpha = 0.3;
-    if (isTopWhite) {
-      this.ctx.fillStyle = '#ff70fa';
-      this.ctx.fillRect(0,0,canvasWidth,bleedPixels);
-      outCount++;
-      console.warn('[AI-Bleed Debug] Top margin still pure white in output');
-    }
-    if (isBottomWhite) {
-      this.ctx.fillStyle = '#ff70fa';
-      this.ctx.fillRect(0,canvasHeight-bleedPixels,canvasWidth,bleedPixels);
-      outCount++;
-      console.warn('[AI-Bleed Debug] Bottom margin still pure white in output');
-    }
-    if (isLeftWhite) {
-      this.ctx.fillStyle = '#ff70fa';
-      this.ctx.fillRect(0,0,bleedPixels,canvasHeight);
-      outCount++;
-      console.warn('[AI-Bleed Debug] Left margin still pure white in output');
-    }
-    if (isRightWhite) {
-      this.ctx.fillStyle = '#ff70fa';
-      this.ctx.fillRect(canvasWidth-bleedPixels,0,bleedPixels,canvasHeight);
-      outCount++;
-      console.warn('[AI-Bleed Debug] Right margin still pure white in output');
-    }
-    this.ctx.restore();
-    if (outCount > 0) {
-      console.warn(`[AI-Bleed Debug] ${outCount} margins have not been filled by AI and remain white`);
-    }
   }
 }
