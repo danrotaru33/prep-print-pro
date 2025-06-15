@@ -10,6 +10,28 @@ export class AIBleedProcessor {
   }
 
   /**
+   * Helper: Ensures any async action resolves in X ms or rejects.
+   */
+  private async withTimeout<T>(promise: Promise<T>, ms: number, taskLabel: string): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        console.warn(`[AI_TIMEOUT] Task "${taskLabel}" timed out after ${ms}ms`);
+        reject(new Error(`Timed out: ${taskLabel}`));
+      }, ms);
+
+      promise
+        .then((value) => {
+          clearTimeout(timer);
+          resolve(value);
+        })
+        .catch((err) => {
+          clearTimeout(timer);
+          reject(err);
+        });
+    });
+  }
+
+  /**
    * Main AI-powered bleed extension logic.
    * Extend *all* white padding in bleed margin, not just "content-aware" edges.
    */
@@ -17,7 +39,7 @@ export class AIBleedProcessor {
     bleedPixels: number,
     finalWidth: number,
     finalHeight: number,
-    bleedPrompt?: string // Accept prompt as optional argument
+    bleedPrompt?: string
   ): Promise<void> {
     console.log('=== AI BLEED PROCESSING START ===');
     console.log(`Processing intelligent bleed with ${bleedPixels}px margin (prompt: ${bleedPrompt || "none"})`);
@@ -26,10 +48,20 @@ export class AIBleedProcessor {
       const marginAreas = this.extractAllBleedMarginAreas(bleedPixels, finalWidth, finalHeight);
       console.log(`Extracted ${marginAreas.length} (FULL bleed) margin areas to fill with AI.`);
 
-      // Step 2: Process each margin area with AI and prompt
+      // Step 2: Process each margin area with AI and prompt, with per-request timeout and logging
       for (const area of marginAreas) {
-        console.log(`[AIBleedProcessor] Filling area:`, area);
-        await this.processMarginArea(area, null, bleedPrompt);
+        console.log(`[AIBleedProcessor] Requesting AI fill for area:`, area);
+        try {
+          await this.withTimeout(
+            this.processMarginArea(area, null, bleedPrompt), 
+            30000, // 30 seconds max per request
+            `[${area.type}] AI inpainting`
+          );
+          console.log(`[AIBleedProcessor] Finished AI fill for ${area.type} margin`);
+        } catch (aiErr) {
+          // If timeout or API fails, skip this margin but report error
+          console.warn(`[AIBleedProcessor] Failed or timed out AI fill for margin "${area.type}" (${aiErr.message}), skipping to fallback`);
+        }
       }
 
       this.finalFillBleedFromEdge(bleedPixels, finalWidth, finalHeight);
@@ -299,7 +331,7 @@ export class AIBleedProcessor {
 
       console.log(`[AIInpaint] maskCanvas for ${area.type}`, maskCanvas.toDataURL().slice(0,80)+'...');
 
-      // Try AI inpainting with prompt
+      // Try AI inpainting with prompt and timeout is now managed by processIntelligentBleed
       const filledImage = await this.tryAIInpainting(contextCanvas, maskCanvas, bleedPrompt);
       
       if (filledImage) {
@@ -331,25 +363,35 @@ export class AIBleedProcessor {
       // OpenAI DALL-E is now the primary inpainting backend
       try {
         console.log('Calling OpenAI DALL-E (preferred)...');
-        const result = await this.callOpenAIInpainting(imageBase64, maskBase64, bleedPrompt);
+        // --- ENSURE TIMEOUT ALSO FOR API CALL (for extra safety) ---
+        const result = await this.withTimeout(
+          this.callOpenAIInpainting(imageBase64, maskBase64, bleedPrompt),
+          30000, // 30s max per OpenAI call
+          "OpenAI DALL-E API"
+        );
         if (result) {
           console.log('OpenAI DALL-E inpainting succeeded.');
           return result;
         }
-      } catch (error) {
-        console.log('OpenAI DALL-E failed, trying HuggingFace LaMa fallback...', error);
+      } catch (error: any) {
+        console.log('OpenAI DALL-E failed or timed out, trying HuggingFace LaMa fallback...', error?.message || error);
       }
 
       // Fallback to HuggingFace LaMa
       try {
         console.log('Calling HuggingFace LaMa fallback...');
-        const result = await this.callHuggingFaceLaMa(imageBase64, maskBase64, bleedPrompt);
+        const result = await this.withTimeout(
+          this.callHuggingFaceLaMa(imageBase64, maskBase64, bleedPrompt),
+          30000, // 30s per LaMa call as well
+          "HuggingFace LaMa API"
+        );
+
         if (result) {
           console.log('HuggingFace LaMa inpainting succeeded as fallback.');
           return result;
         }
-      } catch (error) {
-        console.log('HuggingFace LaMa (fallback) failed');
+      } catch (error: any) {
+        console.log('HuggingFace LaMa (fallback) failed or timed out', error?.message || error);
       }
 
       return null;
