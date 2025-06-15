@@ -132,11 +132,12 @@ const Index = () => {
       setProcessingStep("Creating PDF from processed image");
       const pdfBlob = await createPDFFromProcessedImage(result.processedImageUrl, parameters);
 
-      // Step 4: Upload to Supabase
+      // Step 4: Upload to Supabase - include user ID in path for RLS compliance
       setProcessingStep("Uploading PDF to Supabase Storage");
       const uniqueId = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
       const ext = ".pdf";
-      outputFilename = `printready_${uniqueId}${ext}`;
+      // Include user ID in the file path for RLS compliance
+      outputFilename = `${user.id}/printready_${uniqueId}${ext}`;
       const { data: uploadData, error: uploadError } = await supabase
         .storage
         .from('processed-files')
