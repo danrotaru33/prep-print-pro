@@ -28,8 +28,12 @@ export class AIBleedProcessor {
 
       // Step 2: Process each margin area with AI
       for (const area of marginAreas) {
+        console.log(`[AIBleedProcessor] Filling area:`, area);
         await this.processMarginArea(area, null);
       }
+
+      // Debug: mark any areas that are suspiciously still white
+      this.debugFillUnfilledBleed(bleedPixels, finalWidth, finalHeight);
 
       console.log('=== AI BLEED PROCESSING COMPLETE ===');
     } catch (error) {
@@ -53,7 +57,7 @@ export class AIBleedProcessor {
     const canvasWidth = finalWidth + bleedPixels * 2;
     const canvasHeight = finalHeight + bleedPixels * 2;
 
-    // Top bleed area
+    // Top bleed area (full width, first bleedPixels rows)
     areas.push({
       type: 'top',
       x: 0,
@@ -65,7 +69,7 @@ export class AIBleedProcessor {
       contextWidth: canvasWidth,
       contextHeight: Math.min(40, finalHeight) // Just a small context slice from inside
     });
-    // Bottom bleed area
+    // Bottom bleed area (full width, last bleedPixels rows)
     areas.push({
       type: 'bottom',
       x: 0,
@@ -77,7 +81,7 @@ export class AIBleedProcessor {
       contextWidth: canvasWidth,
       contextHeight: Math.min(40, finalHeight)
     });
-    // Left bleed area
+    // Left bleed area (full height, first bleedPixels columns)
     areas.push({
       type: 'left',
       x: 0,
@@ -89,7 +93,7 @@ export class AIBleedProcessor {
       contextWidth: Math.min(40, finalWidth),
       contextHeight: finalHeight
     });
-    // Right bleed area
+    // Right bleed area (full height, last bleedPixels columns)
     areas.push({
       type: 'right',
       x: bleedPixels + finalWidth,
@@ -236,7 +240,7 @@ export class AIBleedProcessor {
   }
 
   private async processMarginArea(area: any, contentBounds: any): Promise<void> {
-    console.log(`Processing ${area.type} margin area...`);
+    console.log(`Processing ${area.type} margin area... Area:`, JSON.stringify(area, null, 2));
 
     try {
       // Create context image for AI inpainting
@@ -269,6 +273,9 @@ export class AIBleedProcessor {
         0, 0, contextCanvas.width, contextCanvas.height
       );
 
+      // Show in devtools
+      console.log(`[AIInpaint] contextCanvas area for ${area.type}`, contextCanvas.toDataURL().slice(0,80)+'...');
+
       // Create mask for the area to fill
       const maskCanvas = document.createElement('canvas');
       maskCanvas.width = contextCanvas.width;
@@ -286,6 +293,8 @@ export class AIBleedProcessor {
       const fillWidth = Math.round(area.width * scale);
       const fillHeight = Math.round(area.height * scale);
       maskCtx.fillRect(fillX, fillY, fillWidth, fillHeight);
+
+      console.log(`[AIInpaint] maskCanvas for ${area.type}`, maskCanvas.toDataURL().slice(0,80)+'...');
 
       // Try AI inpainting
       const filledImage = await this.tryAIInpainting(contextCanvas, maskCanvas);
@@ -442,5 +451,95 @@ export class AIBleedProcessor {
 
     // Apply to main canvas
     this.ctx.drawImage(tempCanvas, area.x, area.y);
+  }
+
+  /** 
+   * Extra visible debug: Fill unfilled (still white) bleed margins with semi-transparent hotpink.
+   * This makes it obvious what margins haven't been filled.
+   */
+  private debugFillUnfilledBleed(bleedPixels: number, finalWidth: number, finalHeight: number): void {
+    // Only for debugging, won't affect print—you can remove later
+    const canvasWidth = finalWidth + bleedPixels * 2;
+    const canvasHeight = finalHeight + bleedPixels * 2;
+    let outCount = 0;
+    const imageData = this.ctx.getImageData(0, 0, canvasWidth, canvasHeight);
+    const data = imageData.data;
+    // If too many white pixels, we highlight the margin
+    let isTopWhite = true;
+    let isBottomWhite = true;
+    let isLeftWhite = true;
+    let isRightWhite = true;
+    // Check top
+    for (let y = 0; y < bleedPixels; y++) {
+      for (let x = 0; x < canvasWidth; x++) {
+        const idx = (y * canvasWidth + x) * 4;
+        if (data[idx] !== 255 || data[idx+1] !== 255 || data[idx+2] !== 255) {
+          isTopWhite = false; break;
+        }
+      }
+      if (!isTopWhite) break;
+    }
+    // Check bottom
+    for (let y = canvasHeight-bleedPixels; y < canvasHeight; y++) {
+      for (let x = 0; x < canvasWidth; x++) {
+        const idx = (y * canvasWidth + x) * 4;
+        if (data[idx] !== 255 || data[idx+1] !== 255 || data[idx+2] !== 255) {
+          isBottomWhite = false; break;
+        }
+      }
+      if (!isBottomWhite) break;
+    }
+    // Check left
+    for (let x = 0; x < bleedPixels; x++) {
+      for (let y = 0; y < canvasHeight; y++) {
+        const idx = (y * canvasWidth + x) * 4;
+        if (data[idx] !== 255 || data[idx+1] !== 255 || data[idx+2] !== 255) {
+          isLeftWhite = false; break;
+        }
+      }
+      if (!isLeftWhite) break;
+    }
+    // Check right
+    for (let x = canvasWidth-bleedPixels; x < canvasWidth; x++) {
+      for (let y = 0; y < canvasHeight; y++) {
+        const idx = (y * canvasWidth + x) * 4;
+        if (data[idx] !== 255 || data[idx+1] !== 255 || data[idx+2] !== 255) {
+          isRightWhite = false; break;
+        }
+      }
+      if (!isRightWhite) break;
+    }
+
+    // Overlay color if found pure white
+    this.ctx.save();
+    this.ctx.globalAlpha = 0.3;
+    if (isTopWhite) {
+      this.ctx.fillStyle = '#ff70fa';
+      this.ctx.fillRect(0,0,canvasWidth,bleedPixels);
+      outCount++;
+      console.warn('[AI-Bleed Debug] Top margin still pure white in output');
+    }
+    if (isBottomWhite) {
+      this.ctx.fillStyle = '#ff70fa';
+      this.ctx.fillRect(0,canvasHeight-bleedPixels,canvasWidth,bleedPixels);
+      outCount++;
+      console.warn('[AI-Bleed Debug] Bottom margin still pure white in output');
+    }
+    if (isLeftWhite) {
+      this.ctx.fillStyle = '#ff70fa';
+      this.ctx.fillRect(0,0,bleedPixels,canvasHeight);
+      outCount++;
+      console.warn('[AI-Bleed Debug] Left margin still pure white in output');
+    }
+    if (isRightWhite) {
+      this.ctx.fillStyle = '#ff70fa';
+      this.ctx.fillRect(canvasWidth-bleedPixels,0,bleedPixels,canvasHeight);
+      outCount++;
+      console.warn('[AI-Bleed Debug] Right margin still pure white in output');
+    }
+    this.ctx.restore();
+    if (outCount > 0) {
+      console.warn(`[AI-Bleed Debug] ${outCount} margins have not been filled by AI and remain white`);
+    }
   }
 }
