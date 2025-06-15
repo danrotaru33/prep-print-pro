@@ -4,6 +4,7 @@ import { ProcessingResult, CanvasContext } from "./types";
 import { PDFProcessor } from "./PDFProcessor";
 import { ImageRenderer } from "./ImageRenderer";
 import { BleedProcessor } from "./BleedProcessor";
+import { AIBleedProcessor } from "./AIBleedProcessor";
 import { CutLineRenderer } from "./CutLineRenderer";
 import { mmToPixels, canvasToDataURL } from "./utils";
 
@@ -13,6 +14,7 @@ export class ImageProcessor {
   private imageRenderer: ImageRenderer;
   private pdfProcessor: PDFProcessor;
   private bleedProcessor: BleedProcessor;
+  private aiBleedProcessor: AIBleedProcessor;
   private cutLineRenderer: CutLineRenderer;
 
   constructor() {
@@ -27,6 +29,7 @@ export class ImageProcessor {
     this.imageRenderer = new ImageRenderer(canvasContext);
     this.pdfProcessor = new PDFProcessor(this.imageRenderer);
     this.bleedProcessor = new BleedProcessor(this.ctx, this.canvas);
+    this.aiBleedProcessor = new AIBleedProcessor(canvasContext);
     this.cutLineRenderer = new CutLineRenderer(this.ctx);
   }
 
@@ -106,10 +109,15 @@ export class ImageProcessor {
     const hasContentData = this.checkCanvasHasContent(imageDataAfterContent);
     console.log('Canvas has content after positioning:', hasContentData);
     
-    // Extend bleed areas
-    console.log('=== STEP 3: BLEED EXTENSION ===');
+    // AI-powered intelligent bleed extension
+    console.log('=== STEP 3: AI BLEED EXTENSION ===');
+    await this.aiBleedProcessor.processIntelligentBleed(bleedPixels, finalWidth, finalHeight);
+    console.log('AI bleed extension completed');
+    
+    // Fallback bleed processing for any remaining areas
+    console.log('=== STEP 4: FALLBACK BLEED PROCESSING ===');
     await this.bleedProcessor.extendBleedAreas(bleedPixels, finalWidth, finalHeight);
-    console.log('Bleed extension completed');
+    console.log('Fallback bleed processing completed');
     
     // Check canvas state after bleed processing
     const imageDataAfterBleed = this.ctx.getImageData(0, 0, canvasWidth, canvasHeight);
@@ -117,7 +125,7 @@ export class ImageProcessor {
     console.log('Canvas has content after bleed processing:', hasBleedData);
     
     // Add cut lines
-    console.log('=== STEP 4: CUT LINES ===');
+    console.log('=== STEP 5: CUT LINES ===');
     this.cutLineRenderer.addCutLines(parameters, finalWidth, finalHeight, bleedPixels);
     console.log('Cut lines added');
     
@@ -127,7 +135,7 @@ export class ImageProcessor {
     console.log('Canvas has content after cut lines:', hasFinalData);
     
     // Convert to blob and create URL
-    console.log('=== STEP 5: CANVAS CONVERSION ===');
+    console.log('=== STEP 6: CANVAS CONVERSION ===');
     const processedImageUrl = await this.canvasToDataURL(this.canvas);
     console.log('Canvas converted to data URL successfully, length:', processedImageUrl.length);
     
