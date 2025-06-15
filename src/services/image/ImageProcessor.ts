@@ -151,7 +151,7 @@ export class ImageProcessor {
     
     // Convert to blob and create URL
     console.log('=== STEP 6: CANVAS CONVERSION ===');
-    const processedImageUrl = canvasToDataURL(this.canvas);
+    const processedImageUrl = await canvasToDataURL(this.canvas);
     console.log('Canvas converted to data URL successfully, length:', processedImageUrl.length);
     
     // Validate the output
