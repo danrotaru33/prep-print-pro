@@ -1,3 +1,4 @@
+
 import { CanvasContext } from "./types";
 
 export class AIBleedProcessor {
@@ -278,7 +279,7 @@ export class AIBleedProcessor {
     console.log('Calling OpenAI DALL-E inpainting...');
     
     try {
-      const response = await fetch('/functions/v1/inpaint-openai', {
+      const response = await fetch('https://rvipdpzpeqbmdpavhojs.supabase.co/functions/v1/inpaint-openai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -316,7 +317,7 @@ export class AIBleedProcessor {
     console.log('Calling HuggingFace LaMa...');
     
     try {
-      const response = await fetch('/functions/v1/inpaint-huggingface', {
+      const response = await fetch('https://rvipdpzpeqbmdpavhojs.supabase.co/functions/v1/inpaint-huggingface', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
