@@ -27,6 +27,7 @@ const Index = () => {
   const [processingError, setProcessingError] = useState<string | null>(null);
   const { toast } = useToast();
   const { user } = useAuth();
+  const [bleedPrompt, setBleedPrompt] = useState<string>("");
 
   const handleFileUpload = (file: UploadedFile) => {
     setUploadedFile(file);
@@ -34,6 +35,7 @@ const Index = () => {
     setValidationResult(null);
     setOutputUrl(null);
     setProcessedImageUrl(null);
+    setBleedPrompt(""); // Reset any previous prompt on new upload
   };
 
   const handleParameterChange = (newParams: Partial<ProcessingParameters>) => {
@@ -92,6 +94,8 @@ const Index = () => {
     }
   };
 
+  const extendedParameters = { ...parameters, bleedPrompt };
+
   const handleProcessing = async () => {
     if (!uploadedFile || !validationResult) return;
     if (!user) {
@@ -106,7 +110,7 @@ const Index = () => {
     setProcessingState("processing");
     setProcessingStep("Initializing processor");
     setProcessingError(null);
-    console.log('Starting processing with parameters:', parameters);
+    console.log('Starting processing with parameters:', extendedParameters);
 
     let outputFilename = "";
     let outputFileUrl = "";
@@ -121,9 +125,9 @@ const Index = () => {
         description: "Your file is being processed with AI optimization...",
       });
 
-      // Step 2: Process file
+      // Step 2: Process file (update to use extendedParameters)
       setProcessingStep("Processing file (bleed, cut lines, AI)");
-      const result = await processor.processFile(uploadedFile, parameters);
+      const result = await processor.processFile(uploadedFile, extendedParameters);
       console.log('Processing result:', result);
 
       setProcessedImageUrl(result.processedImageUrl);
@@ -262,6 +266,8 @@ const Index = () => {
                 processingState={processingState}
                 onValidate={handleValidation}
                 onProcess={handleProcessing}
+                bleedPrompt={bleedPrompt}
+                onBleedPromptChange={setBleedPrompt}
               />
             )}
             {validationResult && (

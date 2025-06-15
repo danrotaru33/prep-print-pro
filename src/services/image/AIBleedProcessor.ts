@@ -16,32 +16,28 @@ export class AIBleedProcessor {
   async processIntelligentBleed(
     bleedPixels: number,
     finalWidth: number,
-    finalHeight: number
+    finalHeight: number,
+    bleedPrompt?: string // Accept prompt as optional argument
   ): Promise<void> {
     console.log('=== AI BLEED PROCESSING START ===');
-    console.log(`Processing intelligent bleed with ${bleedPixels}px margin (now extends entire white padding)`);
+    console.log(`Processing intelligent bleed with ${bleedPixels}px margin (prompt: ${bleedPrompt || "none"})`);
 
     try {
-      // Step 1: Target the entire bleed areas -- all four sides!
       const marginAreas = this.extractAllBleedMarginAreas(bleedPixels, finalWidth, finalHeight);
       console.log(`Extracted ${marginAreas.length} (FULL bleed) margin areas to fill with AI.`);
 
-      // Step 2: Process each margin area with AI
+      // Step 2: Process each margin area with AI and prompt
       for (const area of marginAreas) {
         console.log(`[AIBleedProcessor] Filling area:`, area);
-        await this.processMarginArea(area, null);
+        await this.processMarginArea(area, null, bleedPrompt);
       }
 
-      // NEW: After AI, forcibly fill any "white" bleed area left with nearest edge pixels (content-aware clone)
       this.finalFillBleedFromEdge(bleedPixels, finalWidth, finalHeight);
-
-      // Debug: mark any areas that are suspiciously still white
       this.debugFillUnfilledBleed(bleedPixels, finalWidth, finalHeight);
 
       console.log('=== AI BLEED PROCESSING COMPLETE ===');
     } catch (error) {
       console.error('AI bleed processing failed, keeping white padding:', error);
-      // Fallback: keep original white padding
     }
   }
 
@@ -242,7 +238,7 @@ export class AIBleedProcessor {
     return areas;
   }
 
-  private async processMarginArea(area: any, contentBounds: any): Promise<void> {
+  private async processMarginArea(area: any, contentBounds: any, bleedPrompt?: string): Promise<void> {
     console.log(`Processing ${area.type} margin area... Area:`, JSON.stringify(area, null, 2));
 
     try {
@@ -299,8 +295,8 @@ export class AIBleedProcessor {
 
       console.log(`[AIInpaint] maskCanvas for ${area.type}`, maskCanvas.toDataURL().slice(0,80)+'...');
 
-      // Try AI inpainting
-      const filledImage = await this.tryAIInpainting(contextCanvas, maskCanvas);
+      // Try AI inpainting with prompt
+      const filledImage = await this.tryAIInpainting(contextCanvas, maskCanvas, bleedPrompt);
       
       if (filledImage) {
         // Extract and apply the filled area back to main canvas
@@ -320,7 +316,7 @@ export class AIBleedProcessor {
    * Attempts AI inpainting. 
    * Now prioritizes HuggingFace LaMa first, and only falls back to OpenAI DALL-E if LaMa fails.
    */
-  private async tryAIInpainting(contextCanvas: HTMLCanvasElement, maskCanvas: HTMLCanvasElement): Promise<HTMLImageElement | null> {
+  private async tryAIInpainting(contextCanvas: HTMLCanvasElement, maskCanvas: HTMLCanvasElement, bleedPrompt?: string): Promise<HTMLImageElement | null> {
     console.log('Attempting AI inpainting, preferring HuggingFace LaMa first...');
 
     try {
@@ -328,10 +324,10 @@ export class AIBleedProcessor {
       const imageBase64 = contextCanvas.toDataURL('image/png');
       const maskBase64 = maskCanvas.toDataURL('image/png');
 
-      // HuggingFace LaMa is now the primary inpainting backend
+      // HuggingFace LaMa is now the primary inpainting backend, with prompt support
       try {
         console.log('Calling HuggingFace LaMa (preferred)...');
-        const result = await this.callHuggingFaceLaMa(imageBase64, maskBase64);
+        const result = await this.callHuggingFaceLaMa(imageBase64, maskBase64, bleedPrompt);
         if (result) {
           console.log('HuggingFace LaMa inpainting succeeded.');
           return result;
@@ -343,7 +339,7 @@ export class AIBleedProcessor {
       // Fallback to OpenAI DALL-E
       try {
         console.log('Calling OpenAI DALL-E fallback...');
-        const result = await this.callOpenAIInpainting(imageBase64, maskBase64);
+        const result = await this.callOpenAIInpainting(imageBase64, maskBase64, bleedPrompt);
         if (result) {
           console.log('OpenAI DALL-E inpainting succeeded as fallback.');
           return result;
@@ -359,7 +355,7 @@ export class AIBleedProcessor {
     }
   }
 
-  private async callOpenAIInpainting(imageBase64: string, maskBase64: string): Promise<HTMLImageElement | null> {
+  private async callOpenAIInpainting(imageBase64: string, maskBase64: string, prompt?: string): Promise<HTMLImageElement | null> {
     // Call the Supabase edge function for OpenAI DALL-E inpainting
     console.log('Calling OpenAI DALL-E inpainting...');
     
@@ -370,7 +366,7 @@ export class AIBleedProcessor {
         body: JSON.stringify({
           image: imageBase64,
           mask: maskBase64,
-          prompt: "extend the background content naturally, maintain style and colors"
+          prompt: prompt || "extend the background content naturally, maintain style and colors"
         })
       });
 
@@ -397,7 +393,7 @@ export class AIBleedProcessor {
     }
   }
 
-  private async callHuggingFaceLaMa(imageBase64: string, maskBase64: string): Promise<HTMLImageElement | null> {
+  private async callHuggingFaceLaMa(imageBase64: string, maskBase64: string, prompt?: string): Promise<HTMLImageElement | null> {
     // Call the Supabase edge function for HuggingFace LaMa
     console.log('Calling HuggingFace LaMa...');
     
@@ -407,7 +403,8 @@ export class AIBleedProcessor {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           image: imageBase64,
-          mask: maskBase64
+          mask: maskBase64,
+          prompt: prompt // << pass the prompt, which edge function may use in the future
         })
       });
 

@@ -1,9 +1,10 @@
-
 import { Play, CheckCircle, AlertCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { UploadedFile, ProcessingParameters, ProcessingState } from "@/types/print";
+import { Textarea } from "@/components/ui/textarea";
+import { useState, useEffect } from "react";
 
 interface ProcessingPanelProps {
   file: UploadedFile;
@@ -11,18 +12,36 @@ interface ProcessingPanelProps {
   processingState: ProcessingState;
   onValidate: () => void;
   onProcess: () => void;
+  bleedPrompt?: string;
+  onBleedPromptChange?: (prompt: string) => void;
 }
 
-export const ProcessingPanel = ({ 
-  file, 
-  parameters, 
-  processingState, 
-  onValidate, 
-  onProcess 
+export const ProcessingPanel = ({
+  file,
+  parameters,
+  processingState,
+  onValidate,
+  onProcess,
+  bleedPrompt,
+  onBleedPromptChange,
 }: ProcessingPanelProps) => {
   const canValidate = processingState === "uploaded";
   const canProcess = processingState === "validated";
-  const isProcessing = processingState === "processing" || processingState === "validating";
+  const isProcessing =
+    processingState === "processing" || processingState === "validating";
+
+  // Internal state to handle the bleed prompt before committing up
+  const [localBleedPrompt, setLocalBleedPrompt] = useState(bleedPrompt || "");
+
+  useEffect(() => {
+    setLocalBleedPrompt(bleedPrompt || "");
+  }, [bleedPrompt]);
+
+  const handlePromptBlur = () => {
+    if (onBleedPromptChange) {
+      onBleedPromptChange(localBleedPrompt);
+    }
+  };
 
   return (
     <Card>
@@ -46,7 +65,24 @@ export const ProcessingPanel = ({
             <p>Cut line: {parameters.cutLineType}</p>
           </div>
         </div>
-
+        <div className="space-y-2">
+          <label className="text-xs font-semibold text-gray-700 block" htmlFor="bleed-prompt">
+            Bleed Fill Prompt <span className="text-gray-400">(optional)</span>
+          </label>
+          <Textarea
+            id="bleed-prompt"
+            placeholder="What should fill the bleed area? E.g. 'Extend the art', 'sky and clouds', 'matching pattern'..."
+            value={localBleedPrompt}
+            disabled={isProcessing}
+            onChange={(e) => setLocalBleedPrompt(e.target.value)}
+            onBlur={handlePromptBlur}
+            className="min-h-[48px] text-xs"
+            maxLength={400}
+          />
+          <p className="text-[11px] text-gray-400 italic">
+            The AI will use this prompt to generate content for empty bleed areas.
+          </p>
+        </div>
         <div className="space-y-2">
           <Button
             onClick={onValidate}
@@ -71,7 +107,6 @@ export const ProcessingPanel = ({
               </>
             )}
           </Button>
-
           <Button
             onClick={onProcess}
             disabled={!canProcess || isProcessing}
