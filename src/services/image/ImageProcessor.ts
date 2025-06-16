@@ -4,8 +4,10 @@ import { ProcessingResult, CanvasContext } from "./types";
 import { PDFProcessor } from "./PDFProcessor";
 import { ImageRenderer } from "./ImageRenderer";
 import { BleedProcessor } from "./BleedProcessor";
+import { AsyncBleedProcessor } from "./AsyncBleedProcessor";
 import { AIBleedProcessor } from "./AIBleedProcessor";
 import { CutLineRenderer } from "./CutLineRenderer";
+import { CancellationToken } from "./CancellationToken";
 import { mmToPixels, canvasToDataURL } from "./utils";
 import { AIInpaintingService } from "./AIInpaintingService";
 
@@ -15,11 +17,13 @@ export class ImageProcessor {
   private imageRenderer: ImageRenderer;
   private pdfProcessor: PDFProcessor;
   private bleedProcessor: BleedProcessor;
+  private asyncBleedProcessor: AsyncBleedProcessor;
   private aiBleedProcessor: AIBleedProcessor;
   private cutLineRenderer: CutLineRenderer;
-  private onProgressUpdate?: (step: string) => void;
+  private cancellationToken: CancellationToken;
+  private onProgressUpdate?: (step: string, progress?: number) => void;
 
-  constructor(onProgressUpdate?: (step: string) => void) {
+  constructor(onProgressUpdate?: (step: string, progress?: number) => void) {
     this.canvas = document.createElement('canvas');
     const context = this.canvas.getContext('2d');
     if (!context) {
@@ -27,19 +31,27 @@ export class ImageProcessor {
     }
     this.ctx = context;
     this.onProgressUpdate = onProgressUpdate;
+    this.cancellationToken = new CancellationToken();
 
     const canvasContext: CanvasContext = { canvas: this.canvas, ctx: this.ctx };
     this.imageRenderer = new ImageRenderer(canvasContext);
     this.pdfProcessor = new PDFProcessor(this.imageRenderer);
     this.bleedProcessor = new BleedProcessor(this.ctx, this.canvas);
+    this.asyncBleedProcessor = new AsyncBleedProcessor(this.ctx, this.canvas);
     this.aiBleedProcessor = new AIBleedProcessor(canvasContext);
     this.cutLineRenderer = new CutLineRenderer(this.ctx);
   }
 
-  private updateProgress(step: string) {
-    console.log(`[ImageProcessor] ${step}`);
+  cancel(reason?: string): void {
+    console.log('[ImageProcessor] Cancelling processing:', reason);
+    this.cancellationToken.cancel(reason);
+    this.asyncBleedProcessor.cancel();
+  }
+
+  private updateProgress(step: string, progress?: number) {
+    console.log(`[ImageProcessor] ${step}${progress !== undefined ? ` (${progress.toFixed(1)}%)` : ''}`);
     if (this.onProgressUpdate) {
-      this.onProgressUpdate(step);
+      this.onProgressUpdate(step, progress);
     }
   }
 
@@ -47,6 +59,8 @@ export class ImageProcessor {
     console.log('=== IMAGE PROCESSING START ===');
     console.log('Starting image processing with parameters:', parameters);
     console.log('File info:', { name: file.file.name, type: file.type, size: file.file.size });
+    
+    this.cancellationToken.throwIfCancelled();
     
     // Check AI configuration upfront
     const aiConfig = AIInpaintingService.getApiConfiguration();
@@ -108,6 +122,8 @@ export class ImageProcessor {
     console.log('=== PROCESSING IMAGE DATA ===');
     console.log('Processing image data. Original dimensions:', originalDimensions);
     
+    this.cancellationToken.throwIfCancelled();
+    
     // Calculate dimensions with bleed
     const finalWidth = mmToPixels(parameters.finalDimensions.width, parameters.dpi);
     const finalHeight = mmToPixels(parameters.finalDimensions.height, parameters.dpi);
@@ -121,14 +137,19 @@ export class ImageProcessor {
     
     // Step 1: Canvas setup
     console.log('=== STEP 1: CANVAS SETUP ===');
-    this.updateProgress('Setting up canvas and positioning content');
+    this.updateProgress('Setting up canvas and positioning content', 0);
     this.imageRenderer.setupCanvas(canvasWidth, canvasHeight);
     console.log('Canvas setup completed');
     
+    this.cancellationToken.throwIfCancelled();
+    
     // Step 2: Content positioning
     console.log('=== STEP 2: CONTENT POSITIONING ===');
+    this.updateProgress('Positioning content within canvas', 10);
     await this.imageRenderer.resizeAndPositionContent(img, finalWidth, finalHeight, bleedPixels);
     console.log('Content positioning completed');
+    
+    this.cancellationToken.throwIfCancelled();
     
     // Check canvas state after content positioning
     const imageDataAfterContent = this.ctx.getImageData(0, 0, canvasWidth, canvasHeight);
@@ -140,25 +161,38 @@ export class ImageProcessor {
     const aiConfig = AIInpaintingService.getApiConfiguration();
     
     if (aiConfig.hasAnyKey) {
-      this.updateProgress('Processing AI-powered bleed extension');
+      this.updateProgress('Processing AI-powered bleed extension', 30);
       console.log('AI keys available, attempting AI bleed processing');
       try {
         await this.aiBleedProcessor.processIntelligentBleed(bleedPixels, finalWidth, finalHeight);
         console.log('AI bleed extension completed successfully');
       } catch (error) {
+        if (this.cancellationToken.isCancelled) {
+          throw error;
+        }
         console.log('AI bleed extension failed, will use fallback methods:', error);
-        this.updateProgress('AI processing failed, using fallback methods');
+        this.updateProgress('AI processing failed, using fallback methods', 40);
       }
     } else {
       console.log('No AI keys configured, skipping AI bleed processing');
-      this.updateProgress('Using standard bleed extension (no AI keys configured)');
+      this.updateProgress('Using standard bleed extension (no AI keys configured)', 30);
     }
     
-    // Step 4: Fallback bleed processing for any remaining areas
-    console.log('=== STEP 4: FALLBACK BLEED PROCESSING ===');
-    this.updateProgress('Applying fallback bleed extension');
-    await this.bleedProcessor.extendBleedAreas(bleedPixels, finalWidth, finalHeight);
-    console.log('Fallback bleed processing completed');
+    this.cancellationToken.throwIfCancelled();
+    
+    // Step 4: Async fallback bleed processing for any remaining areas
+    console.log('=== STEP 4: ASYNC BLEED PROCESSING ===');
+    this.updateProgress('Applying bleed extension', 50);
+    
+    await this.asyncBleedProcessor.extendBleedAreas(
+      bleedPixels, 
+      finalWidth, 
+      finalHeight,
+      (progress) => this.updateProgress('Processing bleed areas', 50 + (progress * 0.3))
+    );
+    console.log('Async bleed processing completed');
+    
+    this.cancellationToken.throwIfCancelled();
     
     // Check canvas state after bleed processing
     const imageDataAfterBleed = this.ctx.getImageData(0, 0, canvasWidth, canvasHeight);
@@ -167,9 +201,11 @@ export class ImageProcessor {
     
     // Step 5: Cut lines
     console.log('=== STEP 5: CUT LINES ===');
-    this.updateProgress('Adding cut lines and finalizing');
+    this.updateProgress('Adding cut lines', 85);
     this.cutLineRenderer.addCutLines(parameters, finalWidth, finalHeight, bleedPixels);
     console.log('Cut lines added');
+    
+    this.cancellationToken.throwIfCancelled();
     
     // Final canvas check
     const finalImageData = this.ctx.getImageData(0, 0, canvasWidth, canvasHeight);
@@ -178,9 +214,11 @@ export class ImageProcessor {
     
     // Step 6: Canvas conversion
     console.log('=== STEP 6: CANVAS CONVERSION ===');
-    this.updateProgress('Converting to final format');
+    this.updateProgress('Converting to final format', 95);
     const processedImageUrl = await canvasToDataURL(this.canvas);
     console.log('Canvas converted to data URL successfully, length:', processedImageUrl.length);
+    
+    this.cancellationToken.throwIfCancelled();
     
     // Validate the output
     if (processedImageUrl.length < 1000) {
@@ -188,6 +226,7 @@ export class ImageProcessor {
       throw new Error('Generated image appears to be empty or corrupted');
     }
     
+    this.updateProgress('Processing complete', 100);
     console.log('=== IMAGE PROCESSING COMPLETE ===');
     return {
       processedImageUrl,
@@ -215,6 +254,7 @@ export class ImageProcessor {
   }
 
   destroy() {
+    this.cancel('Processor destroyed');
     // Clean up resources
     this.canvas.width = 0;
     this.canvas.height = 0;

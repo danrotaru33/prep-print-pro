@@ -1,5 +1,5 @@
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { ProcessingState, UploadedFile, ProcessingParameters, ValidationResult } from "@/types/print";
 import { ImageProcessor, createPDFFromProcessedImage } from "@/services/imageProcessing";
 import { useToast } from "@/components/ui/use-toast";
@@ -21,9 +21,11 @@ export function useDashboardLogic() {
   const [processedImageUrl, setProcessedImageUrl] = useState<string | null>(null);
   const [processingStep, setProcessingStep] = useState<string | null>(null);
   const [processingError, setProcessingError] = useState<string | null>(null);
+  const [processingProgress, setProcessingProgress] = useState<number>(0);
   const { toast } = useToast();
   const { user } = useAuth();
   const [bleedPrompt, setBleedPrompt] = useState<string>("");
+  const imageProcessorRef = useRef<ImageProcessor | null>(null);
 
   const handleFileUpload = (file: UploadedFile) => {
     setUploadedFile(file);
@@ -32,6 +34,7 @@ export function useDashboardLogic() {
     setOutputUrl(null);
     setProcessedImageUrl(null);
     setProcessingError(null);
+    setProcessingProgress(0);
     setBleedPrompt(""); // Reset any previous prompt on new upload
   };
 
@@ -131,6 +134,20 @@ export function useDashboardLogic() {
     }
   };
 
+  const handleCancelProcessing = () => {
+    if (imageProcessorRef.current) {
+      imageProcessorRef.current.cancel("User cancelled");
+      imageProcessorRef.current = null;
+    }
+    setProcessingState("validated");
+    setProcessingStep(null);
+    setProcessingProgress(0);
+    toast({
+      title: "Processing Cancelled",
+      description: "File processing has been cancelled.",
+    });
+  };
+
   const extendedParameters = { ...parameters, bleedPrompt };
 
   const handleProcessing = async () => {
@@ -147,6 +164,7 @@ export function useDashboardLogic() {
     setProcessingState("processing");
     setProcessingStep("Initializing processor");
     setProcessingError(null);
+    setProcessingProgress(0);
     console.log('Starting processing with parameters:', extendedParameters);
 
     let outputFilename = "";
@@ -169,9 +187,14 @@ export function useDashboardLogic() {
 
       // Step 2: Initialize processor with progress callback
       setProcessingStep("Initializing image processor");
-      const processor = new ImageProcessor((step: string) => {
+      const processor = new ImageProcessor((step: string, progress?: number) => {
         setProcessingStep(step);
+        if (progress !== undefined) {
+          setProcessingProgress(progress);
+        }
       });
+      
+      imageProcessorRef.current = processor;
 
       // Step 3: Process file with progress updates
       setProcessingStep("Processing file (bleed, cut lines, AI)");
@@ -182,10 +205,12 @@ export function useDashboardLogic() {
 
       // Step 4: Create PDF
       setProcessingStep("Creating PDF from processed image");
+      setProcessingProgress(95);
       const pdfBlob = await createPDFFromProcessedImage(result.processedImageUrl, parameters);
 
       // Step 5: Upload to Supabase
       setProcessingStep("Uploading PDF to storage");
+      setProcessingProgress(97);
       const uniqueId = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
       const ext = ".pdf";
       outputFilename = `${user.id}/printready_${uniqueId}${ext}`;
@@ -206,6 +231,7 @@ export function useDashboardLogic() {
 
       // Step 6: Get public URL
       setProcessingStep("Generating download link");
+      setProcessingProgress(99);
       const { data: fileUrlData, error: urlError } = await supabase
         .storage
         .from('processed-files')
@@ -244,7 +270,9 @@ export function useDashboardLogic() {
 
       // Step 8: Cleanup and success
       setProcessingStep("Cleaning up resources");
+      setProcessingProgress(100);
       processor.destroy();
+      imageProcessorRef.current = null;
 
       setProcessingState("completed");
       setProcessingStep(null);
@@ -261,6 +289,11 @@ export function useDashboardLogic() {
     } catch (error: any) {
       console.error('Processing error:', error);
       setProcessingError(error?.message || String(error));
+      
+      // Check if it was a cancellation
+      if (error?.message?.includes('cancelled')) {
+        return; // Don't show error toast for cancellation
+      }
       
       // Provide helpful error context
       let errorTitle = "Processing Failed";
@@ -300,6 +333,12 @@ export function useDashboardLogic() {
           });
       }
 
+      // Cleanup processor on error
+      if (imageProcessorRef.current) {
+        imageProcessorRef.current.destroy();
+        imageProcessorRef.current = null;
+      }
+
       setProcessingState("validated");
     }
   };
@@ -321,11 +360,14 @@ export function useDashboardLogic() {
     setProcessingStep,
     processingError,
     setProcessingError,
+    processingProgress,
+    setProcessingProgress,
     bleedPrompt,
     setBleedPrompt,
     handleFileUpload,
     handleParameterChange,
     handleValidation,
     handleProcessing,
+    handleCancelProcessing,
   };
 }

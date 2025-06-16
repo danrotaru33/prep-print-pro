@@ -22,11 +22,13 @@ const MainDashboard = () => {
     processedImageUrl,
     processingStep,
     processingError,
+    processingProgress,
     bleedPrompt,
     handleFileUpload,
     handleParameterChange,
     handleValidation,
     handleProcessing,
+    handleCancelProcessing,
     setBleedPrompt,
   } = useDashboardLogic();
 
@@ -56,8 +58,10 @@ const MainDashboard = () => {
                 processingState={processingState}
                 onValidate={handleValidation}
                 onProcess={handleProcessing}
+                onCancel={handleCancelProcessing}
                 bleedPrompt={bleedPrompt}
                 onBleedPromptChange={setBleedPrompt}
+                processingProgress={processingProgress}
               />
             )}
             {validationResult && (
