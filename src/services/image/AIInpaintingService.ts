@@ -1,4 +1,3 @@
-
 export class AIInpaintingService {
   /**
    * Helper: Ensures any async action resolves in X ms or rejects.
@@ -63,28 +62,10 @@ export class AIInpaintingService {
     // Reduced timeout for faster failure
     const AI_TIMEOUT = 15000; // 15 seconds instead of 30
 
-    // Try OpenAI first if available
-    if (config.hasOpenAI) {
-      try {
-        console.log('[AI_INPAINTING] Attempting OpenAI DALL-E...');
-        const img = await this.withTimeout(
-          this.callOpenAIInpainting(imageBase64, maskBase64, bleedPrompt),
-          AI_TIMEOUT,
-          "OpenAI DALL-E API"
-        );
-        if (img) {
-          console.log('[AI_INPAINTING] OpenAI success');
-          return img;
-        }
-      } catch (error: any) {
-        console.log('[AI_INPAINTING] OpenAI failed:', error?.message || error);
-      }
-    }
-
-    // Try HuggingFace if available
+    // Try HuggingFace first if available (now primary)
     if (config.hasHuggingFace) {
       try {
-        console.log('[AI_INPAINTING] Attempting HuggingFace LaMa fallback...');
+        console.log('[AI_INPAINTING] Attempting HuggingFace LaMa (primary)...');
         const img = await this.withTimeout(
           this.callHuggingFaceLaMa(imageBase64, maskBase64, bleedPrompt),
           AI_TIMEOUT,
@@ -96,6 +77,24 @@ export class AIInpaintingService {
         }
       } catch (error: any) {
         console.log('[AI_INPAINTING] HuggingFace failed:', error?.message || error);
+      }
+    }
+
+    // Try OpenAI as fallback if available
+    if (config.hasOpenAI) {
+      try {
+        console.log('[AI_INPAINTING] Attempting OpenAI DALL-E fallback...');
+        const img = await this.withTimeout(
+          this.callOpenAIInpainting(imageBase64, maskBase64, bleedPrompt),
+          AI_TIMEOUT,
+          "OpenAI DALL-E API"
+        );
+        if (img) {
+          console.log('[AI_INPAINTING] OpenAI success');
+          return img;
+        }
+      } catch (error: any) {
+        console.log('[AI_INPAINTING] OpenAI failed:', error?.message || error);
       }
     }
 
