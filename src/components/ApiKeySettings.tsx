@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/use-toast";
-import { settings } from "lucide-react";
+import { Settings } from "lucide-react";
 
 interface ApiKeySettingsProps {
   onKeysChange?: (keys: { openai?: string; huggingface?: string }) => void;
@@ -60,7 +60,7 @@ export const ApiKeySettings = ({ onKeysChange }: ApiKeySettingsProps) => {
       <CardHeader>
         <CardTitle className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
-            <settings className="h-5 w-5" />
+            <Settings className="h-5 w-5" />
             <span>AI Configuration</span>
           </div>
           <Badge variant={hasAnyKey ? "default" : "outline"}>
