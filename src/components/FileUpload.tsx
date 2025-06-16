@@ -51,7 +51,7 @@ export const FileUpload = ({ onFileUpload, uploadedFile, processingState }: File
 
     toast({
       title: "File uploaded successfully",
-      description: `${file.name} is ready for processing`,
+      description: `${file.name} is ready for the new workflow processing`,
     });
   }, [onFileUpload]);
 
@@ -86,6 +86,9 @@ export const FileUpload = ({ onFileUpload, uploadedFile, processingState }: File
                 <p className="font-medium text-gray-900">{uploadedFile.file.name}</p>
                 <p className="text-sm text-gray-500">
                   {uploadedFile.type.toUpperCase()} • {Math.round(uploadedFile.file.size / 1024)} KB
+                </p>
+                <p className="text-xs text-blue-600 font-medium">
+                  {uploadedFile.type === "pdf" ? "Will be converted to high-quality PNG" : "Ready for direct processing"}
                 </p>
               </div>
             </div>
@@ -132,13 +135,16 @@ export const FileUpload = ({ onFileUpload, uploadedFile, processingState }: File
           ) : (
             <div className="space-y-2">
               <p className="text-lg font-medium text-gray-900">
-                Drag & drop your file here
+                Upload for New Workflow
               </p>
               <p className="text-gray-500">
-                or click to browse
+                Drag & drop your file here or click to browse
               </p>
               <p className="text-sm text-gray-400">
-                Supports PDF, JPEG, PNG files
+                Supports PDF (auto-converted to PNG), JPEG, PNG
+              </p>
+              <p className="text-xs text-blue-600 font-medium">
+                New workflow: Convert → Resize → AI Extrapolation → Cut Lines → PDF Export
               </p>
             </div>
           )}

@@ -36,7 +36,6 @@ export const ProcessingPanel = ({
   const isProcessing =
     processingState === "processing" || processingState === "validating";
 
-  // Internal state to handle the bleed prompt before committing up
   const [localBleedPrompt, setLocalBleedPrompt] = useState(bleedPrompt || "");
 
   useEffect(() => {
@@ -54,31 +53,31 @@ export const ProcessingPanel = ({
       <CardHeader>
         <CardTitle className="flex items-center space-x-2">
           <Play className="h-5 w-5" />
-          <span>Processing Controls</span>
+          <span>New Workflow Processing</span>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium">Current Parameters:</span>
+            <span className="text-sm font-medium">Target Specifications:</span>
             <Badge variant="outline">
-              {parameters.finalDimensions.width}×{parameters.finalDimensions.height}mm
+              {parameters.finalDimensions.width}×{parameters.finalDimensions.height}mm @ {parameters.dpi}DPI
             </Badge>
           </div>
           <div className="text-xs text-gray-500 space-y-1">
             <p>Bleed: {parameters.bleedMargin}mm</p>
-            <p>DPI: {parameters.dpi}</p>
             <p>Cut line: {parameters.cutLineType}</p>
+            <p className="text-blue-600 font-medium">Workflow: Convert → Resize → AI Extrapolation → Cut Lines → PDF Export</p>
           </div>
         </div>
         
         <div className="space-y-2">
-          <label className="text-xs font-semibold text-gray-700 block" htmlFor="bleed-prompt">
-            Bleed Fill Prompt <span className="text-gray-400">(optional)</span>
+          <label className="text-xs font-semibold text-gray-700 block" htmlFor="content-prompt">
+            AI Content Extrapolation Prompt <span className="text-gray-400">(optional)</span>
           </label>
           <Textarea
-            id="bleed-prompt"
-            placeholder="What should fill the bleed area? E.g. 'Extend the art', 'sky and clouds', 'matching pattern'..."
+            id="content-prompt"
+            placeholder="Describe what content should fill the bleed areas. E.g. 'extend the background seamlessly', 'continue the pattern', 'natural sky continuation'..."
             value={localBleedPrompt}
             disabled={isProcessing}
             onChange={(e) => setLocalBleedPrompt(e.target.value)}
@@ -87,14 +86,14 @@ export const ProcessingPanel = ({
             maxLength={400}
           />
           <p className="text-[11px] text-gray-400 italic">
-            The AI will use this prompt to generate content for empty bleed areas.
+            AI will use this prompt to intelligently extrapolate content for bleed areas using HuggingFace models.
           </p>
         </div>
 
         {isProcessing && processingState === "processing" && (
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">
-              <span>Processing Progress</span>
+              <span>Workflow Progress</span>
               <span className="text-xs text-gray-500">{processingProgress.toFixed(0)}%</span>
             </div>
             <Progress value={processingProgress} className="w-full" />
@@ -111,12 +110,12 @@ export const ProcessingPanel = ({
             {processingState === "validating" ? (
               <>
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
-                Validating...
+                Validating for New Workflow...
               </>
             ) : processingState === "validated" ? (
               <>
                 <CheckCircle className="h-4 w-4 mr-2" />
-                Validation Complete
+                Ready for Processing
               </>
             ) : (
               <>
@@ -136,12 +135,12 @@ export const ProcessingPanel = ({
               {processingState === "processing" ? (
                 <>
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
-                  Processing...
+                  Processing New Workflow...
                 </>
               ) : (
                 <>
                   <Play className="h-4 w-4 mr-2" />
-                  Process File
+                  Start New Workflow
                 </>
               )}
             </Button>

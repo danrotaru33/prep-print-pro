@@ -35,7 +35,7 @@ export function useDashboardLogic() {
     setProcessedImageUrl(null);
     setProcessingError(null);
     setProcessingProgress(0);
-    setBleedPrompt(""); // Reset any previous prompt on new upload
+    setBleedPrompt("");
   };
 
   const handleParameterChange = (newParams: Partial<ProcessingParameters>) => {
@@ -46,34 +46,34 @@ export function useDashboardLogic() {
     if (!uploadedFile) return;
     setProcessingState("validating");
     setProcessingError(null);
-    console.log('Starting validation process');
+    console.log('Starting validation process for new workflow');
     
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise(resolve => setTimeout(resolve, 800));
       const warnings: any[] = [];
       const errors: any[] = [];
       
       // Check file size
-      if (uploadedFile.file.size > 50 * 1024 * 1024) {
-        errors.push({ type: 'error', message: 'File size exceeds 50MB limit', category: 'format' });
+      if (uploadedFile.file.size > 100 * 1024 * 1024) {
+        errors.push({ type: 'error', message: 'File size exceeds 100MB limit', category: 'format' });
       }
       
       // Check for PDF-specific warnings
       if (uploadedFile.type === 'pdf') {
         warnings.push({
           type: 'warning',
-          message: 'PDF processing requires stable internet connection. If processing fails, try converting to PNG/JPG.',
+          message: 'PDF will be converted to highest quality PNG for processing.',
           category: 'pdf'
         });
       }
       
-      // Check DPI vs final dimensions
+      // Check DPI vs final dimensions for high resolution output
       const pixelWidth = (parameters.finalDimensions.width * parameters.dpi) / 25.4;
       const pixelHeight = (parameters.finalDimensions.height * parameters.dpi) / 25.4;
-      if (pixelWidth > 4000 || pixelHeight > 4000) {
+      if (pixelWidth > 5000 || pixelHeight > 5000) {
         warnings.push({
           type: 'warning',
-          message: `High resolution output (${Math.round(pixelWidth)}×${Math.round(pixelHeight)}px) may take longer to process`,
+          message: `Very high resolution output (${Math.round(pixelWidth)}×${Math.round(pixelHeight)}px) will take longer to process`,
           category: 'dpi'
         });
       }
@@ -87,24 +87,18 @@ export function useDashboardLogic() {
         });
       }
 
-      // Check AI configuration and add informational warnings
+      // Check AI configuration
       const aiConfig = AIInpaintingService.getApiConfiguration();
       if (!aiConfig.hasAnyKey) {
         warnings.push({
           type: 'warning',
-          message: 'No AI API keys configured. Bleed areas will be filled using standard methods. Configure API keys for enhanced AI-powered bleed generation.',
+          message: 'No AI API keys configured. Content extrapolation will use standard methods. Configure HuggingFace API key for AI-powered content generation.',
           category: 'ai'
         });
-      } else if (aiConfig.hasOpenAI && !aiConfig.hasHuggingFace) {
+      } else {
         warnings.push({
           type: 'info',
-          message: 'Only OpenAI API key configured. HuggingFace API key recommended as fallback.',
-          category: 'ai'
-        });
-      } else if (!aiConfig.hasOpenAI && aiConfig.hasHuggingFace) {
-        warnings.push({
-          type: 'info',
-          message: 'Only HuggingFace API key configured. OpenAI API key recommended for best results.',
+          message: 'AI-powered content extrapolation will be used to intelligently fill bleed areas.',
           category: 'ai'
         });
       }
@@ -120,7 +114,7 @@ export function useDashboardLogic() {
       
       toast({
         title: "Validation Complete",
-        description: `Found ${errors.length} errors and ${warnings.length} warnings`,
+        description: `Ready for processing. Found ${errors.length} errors and ${warnings.length} notifications.`,
       });
     } catch (error) {
       console.error('Validation error:', error);
@@ -162,30 +156,17 @@ export function useDashboardLogic() {
     }
 
     setProcessingState("processing");
-    setProcessingStep("Initializing processor");
+    setProcessingStep("Initializing new workflow processor");
     setProcessingError(null);
     setProcessingProgress(0);
-    console.log('Starting processing with parameters:', extendedParameters);
+    console.log('=== NEW WORKFLOW START ===');
+    console.log('Starting new workflow with parameters:', extendedParameters);
 
     let outputFilename = "";
     let outputFileUrl = "";
 
     try {
-      // Step 1: Check AI configuration and notify user
-      const aiConfig = AIInpaintingService.getApiConfiguration();
-      if (aiConfig.hasAnyKey) {
-        toast({
-          title: "Processing Started",
-          description: "Your file is being processed with AI-powered bleed generation...",
-        });
-      } else {
-        toast({
-          title: "Processing Started",
-          description: "Your file is being processed with standard bleed methods. Configure API keys for AI enhancement.",
-        });
-      }
-
-      // Step 2: Initialize processor with progress callback
+      // Step 1: Initialize processor with progress callback
       setProcessingStep("Initializing image processor");
       const processor = new ImageProcessor((step: string, progress?: number) => {
         setProcessingStep(step);
@@ -196,20 +177,20 @@ export function useDashboardLogic() {
       
       imageProcessorRef.current = processor;
 
-      // Step 3: Process file with progress updates
-      setProcessingStep("Processing file (bleed, cut lines, AI)");
+      // Step 2: Process file with new workflow (convert, resize, add bleed, AI extrapolation, cut lines)
+      setProcessingStep("Processing with new workflow");
       const result = await processor.processFile(uploadedFile, extendedParameters);
-      console.log('Processing result:', result);
+      console.log('New workflow processing result:', result);
 
       setProcessedImageUrl(result.processedImageUrl);
 
-      // Step 4: Create PDF
-      setProcessingStep("Creating PDF from processed image");
+      // Step 3: Create high-resolution PDF
+      setProcessingStep("Creating high-resolution PDF");
       setProcessingProgress(95);
       const pdfBlob = await createPDFFromProcessedImage(result.processedImageUrl, parameters);
 
-      // Step 5: Upload to Supabase
-      setProcessingStep("Uploading PDF to storage");
+      // Step 4: Upload to Supabase
+      setProcessingStep("Uploading final PDF");
       setProcessingProgress(97);
       const uniqueId = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
       const ext = ".pdf";
@@ -229,7 +210,7 @@ export function useDashboardLogic() {
         throw new Error("Failed to upload file to storage: " + uploadError.message);
       }
 
-      // Step 6: Get public URL
+      // Step 5: Get public URL
       setProcessingStep("Generating download link");
       setProcessingProgress(99);
       const { data: fileUrlData, error: urlError } = await supabase
@@ -245,7 +226,7 @@ export function useDashboardLogic() {
       outputFileUrl = fileUrlData.signedUrl;
       setOutputUrl(outputFileUrl);
 
-      // Step 7: Log to database
+      // Step 6: Log to database
       setProcessingStep("Saving metadata");
       const { error: dbError } = await supabase
         .from("processed_files")
@@ -265,11 +246,10 @@ export function useDashboardLogic() {
 
       if (dbError) {
         console.warn("Database logging failed:", dbError);
-        // Don't fail the entire process for logging issues
       }
 
-      // Step 8: Cleanup and success
-      setProcessingStep("Cleaning up resources");
+      // Step 7: Cleanup and success
+      setProcessingStep("Finalizing");
       setProcessingProgress(100);
       processor.destroy();
       imageProcessorRef.current = null;
@@ -277,34 +257,28 @@ export function useDashboardLogic() {
       setProcessingState("completed");
       setProcessingStep(null);
 
-      const successMessage = aiConfig.hasAnyKey 
-        ? `File processed successfully with AI-enhanced bleed generation!`
-        : `File processed successfully with standard bleed methods!`;
-
       toast({
-        title: "Processing Complete!",
-        description: successMessage,
+        title: "New Workflow Complete!",
+        description: "Your file has been processed with AI content extrapolation and exported as a high-resolution PDF.",
       });
 
     } catch (error: any) {
-      console.error('Processing error:', error);
+      console.error('New workflow processing error:', error);
       setProcessingError(error?.message || String(error));
       
-      // Check if it was a cancellation
       if (error?.message?.includes('cancelled')) {
-        return; // Don't show error toast for cancellation
+        return;
       }
       
-      // Provide helpful error context
       let errorTitle = "Processing Failed";
       let errorDescription = error?.message || String(error);
       
       if (error?.message?.includes('PDF')) {
-        errorTitle = "PDF Processing Failed";
-        errorDescription = error.message + " Consider converting your PDF to PNG or JPG format.";
-      } else if (error?.message?.includes('AI') || error?.message?.includes('inpainting')) {
+        errorTitle = "PDF Conversion Failed";
+        errorDescription = error.message + " Please try a different PDF or convert to PNG/JPG.";
+      } else if (error?.message?.includes('AI') || error?.message?.includes('extrapolation')) {
         errorTitle = "AI Processing Failed";
-        errorDescription = "AI processing failed, but you can still process with standard methods. " + error.message;
+        errorDescription = "AI content extrapolation failed. " + error.message;
       }
       
       toast({
@@ -313,7 +287,7 @@ export function useDashboardLogic() {
         variant: "destructive",
       });
 
-      // Log failed processing to database
+      // Log failed processing
       if (user && uploadedFile) {
         await supabase
           .from("processed_files")
