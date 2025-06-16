@@ -1,3 +1,4 @@
+
 import { ProcessingParameters, UploadedFile } from "@/types/print";
 import { ProcessingResult, CanvasContext } from "./types";
 import { PDFProcessor } from "./PDFProcessor";
@@ -6,6 +7,7 @@ import { BleedProcessor } from "./BleedProcessor";
 import { AIBleedProcessor } from "./AIBleedProcessor";
 import { CutLineRenderer } from "./CutLineRenderer";
 import { mmToPixels, canvasToDataURL } from "./utils";
+import { AIInpaintingService } from "./AIInpaintingService";
 
 export class ImageProcessor {
   private canvas: HTMLCanvasElement;
@@ -15,14 +17,16 @@ export class ImageProcessor {
   private bleedProcessor: BleedProcessor;
   private aiBleedProcessor: AIBleedProcessor;
   private cutLineRenderer: CutLineRenderer;
+  private onProgressUpdate?: (step: string) => void;
 
-  constructor() {
+  constructor(onProgressUpdate?: (step: string) => void) {
     this.canvas = document.createElement('canvas');
     const context = this.canvas.getContext('2d');
     if (!context) {
       throw new Error('Failed to get canvas context');
     }
     this.ctx = context;
+    this.onProgressUpdate = onProgressUpdate;
 
     const canvasContext: CanvasContext = { canvas: this.canvas, ctx: this.ctx };
     this.imageRenderer = new ImageRenderer(canvasContext);
@@ -32,31 +36,40 @@ export class ImageProcessor {
     this.cutLineRenderer = new CutLineRenderer(this.ctx);
   }
 
+  private updateProgress(step: string) {
+    console.log(`[ImageProcessor] ${step}`);
+    if (this.onProgressUpdate) {
+      this.onProgressUpdate(step);
+    }
+  }
+
   async processFile(file: UploadedFile, parameters: ProcessingParameters): Promise<ProcessingResult> {
     console.log('=== IMAGE PROCESSING START ===');
     console.log('Starting image processing with parameters:', parameters);
     console.log('File info:', { name: file.file.name, type: file.type, size: file.file.size });
     
+    // Check AI configuration upfront
+    const aiConfig = AIInpaintingService.getApiConfiguration();
+    console.log('AI Configuration:', aiConfig);
+    
     if (file.type === 'pdf') {
       console.log('Processing as PDF file');
+      this.updateProgress('Loading PDF document');
       try {
         const img = await this.pdfProcessor.processPDF(file, parameters);
         console.log('PDF processed successfully, now processing image data');
         return this.processImageData(img, parameters);
       } catch (error) {
         console.error('PDF processing failed:', error);
-
-        // Instead of proceeding, throw a specific error
-        // This blocks the process and further export, showing an error in UI.
         throw new Error(
-          'PDF failed to process. ' +
+          'PDF processing failed. ' +
           (error instanceof Error ? error.message : String(error)) +
-          ' — You cannot export until a valid PDF is processed. ' +
-          'Try again with a different PDF file or convert your file to an image (PNG/JPG).'
+          ' Please try converting your PDF to PNG/JPG format instead.'
         );
       }
     } else {
       console.log('Processing as image file');
+      this.updateProgress('Loading image file');
       return this.processImage(file, parameters);
     }
   }
@@ -83,7 +96,7 @@ export class ImageProcessor {
       img.onerror = (error) => {
         console.error('Failed to load image:', error);
         URL.revokeObjectURL(imageUrl);
-        reject(new Error('Failed to load image'));
+        reject(new Error('Failed to load image - the file may be corrupted'));
       };
       img.crossOrigin = 'anonymous';
       img.src = imageUrl;
@@ -106,12 +119,13 @@ export class ImageProcessor {
     console.log(`Final dimensions: ${finalWidth}x${finalHeight}px (${parameters.finalDimensions.width}x${parameters.finalDimensions.height}mm at ${parameters.dpi}DPI)`);
     console.log(`Canvas dimensions: ${canvasWidth}x${canvasHeight}px (includes ${bleedPixels}px bleed on each side)`);
     
-    // Set up canvas
+    // Step 1: Canvas setup
     console.log('=== STEP 1: CANVAS SETUP ===');
+    this.updateProgress('Setting up canvas and positioning content');
     this.imageRenderer.setupCanvas(canvasWidth, canvasHeight);
     console.log('Canvas setup completed');
     
-    // Resize and position the main content
+    // Step 2: Content positioning
     console.log('=== STEP 2: CONTENT POSITIONING ===');
     await this.imageRenderer.resizeAndPositionContent(img, finalWidth, finalHeight, bleedPixels);
     console.log('Content positioning completed');
@@ -121,13 +135,28 @@ export class ImageProcessor {
     const hasContentData = this.checkCanvasHasContent(imageDataAfterContent);
     console.log('Canvas has content after positioning:', hasContentData);
     
-    // AI-powered intelligent bleed extension
+    // Step 3: AI-powered intelligent bleed extension (with graceful degradation)
     console.log('=== STEP 3: AI BLEED EXTENSION ===');
-    await this.aiBleedProcessor.processIntelligentBleed(bleedPixels, finalWidth, finalHeight);
-    console.log('AI bleed extension completed');
+    const aiConfig = AIInpaintingService.getApiConfiguration();
     
-    // Fallback bleed processing for any remaining areas
+    if (aiConfig.hasAnyKey) {
+      this.updateProgress('Processing AI-powered bleed extension');
+      console.log('AI keys available, attempting AI bleed processing');
+      try {
+        await this.aiBleedProcessor.processIntelligentBleed(bleedPixels, finalWidth, finalHeight);
+        console.log('AI bleed extension completed successfully');
+      } catch (error) {
+        console.log('AI bleed extension failed, will use fallback methods:', error);
+        this.updateProgress('AI processing failed, using fallback methods');
+      }
+    } else {
+      console.log('No AI keys configured, skipping AI bleed processing');
+      this.updateProgress('Using standard bleed extension (no AI keys configured)');
+    }
+    
+    // Step 4: Fallback bleed processing for any remaining areas
     console.log('=== STEP 4: FALLBACK BLEED PROCESSING ===');
+    this.updateProgress('Applying fallback bleed extension');
     await this.bleedProcessor.extendBleedAreas(bleedPixels, finalWidth, finalHeight);
     console.log('Fallback bleed processing completed');
     
@@ -136,8 +165,9 @@ export class ImageProcessor {
     const hasBleedData = this.checkCanvasHasContent(imageDataAfterBleed);
     console.log('Canvas has content after bleed processing:', hasBleedData);
     
-    // Add cut lines
+    // Step 5: Cut lines
     console.log('=== STEP 5: CUT LINES ===');
+    this.updateProgress('Adding cut lines and finalizing');
     this.cutLineRenderer.addCutLines(parameters, finalWidth, finalHeight, bleedPixels);
     console.log('Cut lines added');
     
@@ -146,8 +176,9 @@ export class ImageProcessor {
     const hasFinalData = this.checkCanvasHasContent(finalImageData);
     console.log('Canvas has content after cut lines:', hasFinalData);
     
-    // Convert to blob and create URL
+    // Step 6: Canvas conversion
     console.log('=== STEP 6: CANVAS CONVERSION ===');
+    this.updateProgress('Converting to final format');
     const processedImageUrl = await canvasToDataURL(this.canvas);
     console.log('Canvas converted to data URL successfully, length:', processedImageUrl.length);
     

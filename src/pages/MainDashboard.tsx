@@ -5,6 +5,7 @@ import { FileUpload } from "@/components/FileUpload";
 import { ProcessingPanel } from "@/components/ProcessingPanel";
 import { ValidationPanel } from "@/components/ValidationPanel";
 import { OutputPanel } from "@/components/OutputPanel";
+import { ApiKeySettings } from "@/components/ApiKeySettings";
 import { useDashboardLogic } from "@/hooks/useDashboardLogic";
 
 /**
@@ -45,6 +46,9 @@ const MainDashboard = () => {
               uploadedFile={uploadedFile}
               processingState={processingState}
             />
+            
+            <ApiKeySettings />
+            
             {uploadedFile && (
               <ProcessingPanel
                 file={uploadedFile}

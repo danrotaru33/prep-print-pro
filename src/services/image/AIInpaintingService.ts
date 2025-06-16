@@ -24,41 +24,82 @@ export class AIInpaintingService {
   }
 
   /**
-   * Main inpainting logic, with first-OpenAI then HuggingFace fallback.
+   * Check if API keys are available and return configuration
+   */
+  static getApiConfiguration(): { hasOpenAI: boolean; hasHuggingFace: boolean; hasAnyKey: boolean } {
+    const openaiKey = localStorage.getItem('openai_api_key');
+    const huggingfaceKey = localStorage.getItem('huggingface_api_key');
+    
+    const hasOpenAI = !!(openaiKey && openaiKey.length > 0);
+    const hasHuggingFace = !!(huggingfaceKey && huggingfaceKey.length > 0);
+    const hasAnyKey = hasOpenAI || hasHuggingFace;
+
+    console.log(`[AI_CONFIG] OpenAI: ${hasOpenAI}, HuggingFace: ${hasHuggingFace}, Any: ${hasAnyKey}`);
+    
+    return { hasOpenAI, hasHuggingFace, hasAnyKey };
+  }
+
+  /**
+   * Main inpainting logic with fast-fail and graceful degradation
    */
   static async tryAIInpainting(
     contextCanvas: HTMLCanvasElement,
     maskCanvas: HTMLCanvasElement,
     bleedPrompt?: string
   ): Promise<HTMLImageElement | null> {
-    console.log('Attempting AI inpainting, preferring OpenAI DALL-E first...');
+    console.log('[AI_INPAINTING] Starting AI inpainting attempt...');
+    
+    const config = this.getApiConfiguration();
+    
+    // Fast-fail if no API keys are configured
+    if (!config.hasAnyKey) {
+      console.log('[AI_INPAINTING] No API keys configured, skipping AI inpainting');
+      return null;
+    }
+
     const imageBase64 = contextCanvas.toDataURL('image/png');
     const maskBase64 = maskCanvas.toDataURL('image/png');
 
-    // Try OpenAI
-    try {
-      const img = await this.withTimeout(
-        this.callOpenAIInpainting(imageBase64, maskBase64, bleedPrompt),
-        30000,
-        "OpenAI DALL-E API"
-      );
-      if (img) return img;
-    } catch (error: any) {
-      console.log('OpenAI DALL-E failed or timed out:', error?.message || error);
+    // Reduced timeout for faster failure
+    const AI_TIMEOUT = 15000; // 15 seconds instead of 30
+
+    // Try OpenAI first if available
+    if (config.hasOpenAI) {
+      try {
+        console.log('[AI_INPAINTING] Attempting OpenAI DALL-E...');
+        const img = await this.withTimeout(
+          this.callOpenAIInpainting(imageBase64, maskBase64, bleedPrompt),
+          AI_TIMEOUT,
+          "OpenAI DALL-E API"
+        );
+        if (img) {
+          console.log('[AI_INPAINTING] OpenAI success');
+          return img;
+        }
+      } catch (error: any) {
+        console.log('[AI_INPAINTING] OpenAI failed:', error?.message || error);
+      }
     }
 
-    // Fallback to HuggingFace LaMa
-    try {
-      const img = await this.withTimeout(
-        this.callHuggingFaceLaMa(imageBase64, maskBase64, bleedPrompt),
-        30000,
-        "HuggingFace LaMa API"
-      );
-      if (img) return img;
-    } catch (error: any) {
-      console.log('HuggingFace LaMa (fallback) failed or timed out:', error?.message || error);
+    // Try HuggingFace if available
+    if (config.hasHuggingFace) {
+      try {
+        console.log('[AI_INPAINTING] Attempting HuggingFace LaMa fallback...');
+        const img = await this.withTimeout(
+          this.callHuggingFaceLaMa(imageBase64, maskBase64, bleedPrompt),
+          AI_TIMEOUT,
+          "HuggingFace LaMa API"
+        );
+        if (img) {
+          console.log('[AI_INPAINTING] HuggingFace success');
+          return img;
+        }
+      } catch (error: any) {
+        console.log('[AI_INPAINTING] HuggingFace failed:', error?.message || error);
+      }
     }
 
+    console.log('[AI_INPAINTING] All AI methods failed, returning null for fallback');
     return null;
   }
 
@@ -67,28 +108,53 @@ export class AIInpaintingService {
     maskBase64: string,
     prompt?: string
   ): Promise<HTMLImageElement | null> {
+    const openaiKey = localStorage.getItem('openai_api_key');
+    if (!openaiKey) {
+      throw new Error('OpenAI API key not configured');
+    }
+
     try {
       const response = await fetch('https://rvipdpzpeqbmdpavhojs.supabase.co/functions/v1/inpaint-openai', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${openaiKey}` // Pass the API key
+        },
         body: JSON.stringify({
           image: imageBase64,
           mask: maskBase64,
           prompt: prompt || "extend the background content naturally, maintain style and colors"
         })
       });
-      if (!response.ok) throw new Error('OpenAI API failed');
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`OpenAI API failed (${response.status}): ${errorText}`);
+      }
+      
       const data = await response.json();
-      if (!data.success) throw new Error(data.error || 'OpenAI inpainting failed');
+      if (!data.success) {
+        throw new Error(data.error || 'OpenAI inpainting failed');
+      }
+      
       const img = new Image();
       return new Promise((resolve, reject) => {
-        img.onload = () => resolve(img);
-        img.onerror = () => reject(new Error('Failed to load AI result'));
+        const timeoutId = setTimeout(() => {
+          reject(new Error('Image load timeout'));
+        }, 8000); // Reduced timeout
+        
+        img.onload = () => {
+          clearTimeout(timeoutId);
+          resolve(img);
+        };
+        img.onerror = () => {
+          clearTimeout(timeoutId);
+          reject(new Error('Failed to load AI result'));
+        };
         img.src = data.result;
-        setTimeout(() => reject(new Error('AI request timeout')), 10000);
       });
     } catch (error) {
-      console.error('OpenAI inpainting error:', error);
+      console.error('[AI_OPENAI] Error:', error);
       return null;
     }
   }
@@ -98,30 +164,53 @@ export class AIInpaintingService {
     maskBase64: string,
     prompt?: string
   ): Promise<HTMLImageElement | null> {
+    const huggingfaceKey = localStorage.getItem('huggingface_api_key');
+    if (!huggingfaceKey) {
+      throw new Error('HuggingFace API key not configured');
+    }
+
     try {
       const response = await fetch('https://rvipdpzpeqbmdpavhojs.supabase.co/functions/v1/inpaint-huggingface', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${huggingfaceKey}` // Pass the API key
+        },
         body: JSON.stringify({
           image: imageBase64,
           mask: maskBase64,
           prompt
         })
       });
-      if (!response.ok) throw new Error('HuggingFace API failed');
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HuggingFace API failed (${response.status}): ${errorText}`);
+      }
+      
       const data = await response.json();
-      if (!data.success) throw new Error(data.error || 'HuggingFace inpainting failed');
+      if (!data.success) {
+        throw new Error(data.error || 'HuggingFace inpainting failed');
+      }
+      
       const img = new Image();
       return new Promise((resolve, reject) => {
-        img.onload = () => resolve(img);
-        img.onerror = () => reject(new Error('Failed to load AI result'));
+        const timeoutId = setTimeout(() => {
+          reject(new Error('Image load timeout'));
+        }, 8000); // Reduced timeout
+        
+        img.onload = () => {
+          clearTimeout(timeoutId);
+          resolve(img);
+        };
+        img.onerror = () => {
+          reject(new Error('Failed to load AI result'));
+        };
         img.src = data.result;
-        setTimeout(() => reject(new Error('AI request timeout')), 10000);
       });
     } catch (error) {
-      console.error('HuggingFace LaMa error:', error);
+      console.error('[AI_HUGGINGFACE] Error:', error);
       return null;
     }
   }
 }
-

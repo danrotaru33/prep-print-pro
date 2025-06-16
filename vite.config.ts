@@ -1,3 +1,4 @@
+
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
@@ -19,4 +20,24 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  // Configure PDF.js worker handling
+  optimizeDeps: {
+    include: ['pdfjs-dist'],
+  },
+  // Ensure PDF.js worker is properly handled in build
+  build: {
+    rollupOptions: {
+      output: {
+        // Ensure PDF.js worker is copied to the output
+        assetFileNames: (assetInfo) => {
+          if (assetInfo.name && assetInfo.name.includes('pdf.worker')) {
+            return 'assets/pdf.worker.[hash][extname]';
+          }
+          return 'assets/[name].[hash][extname]';
+        },
+      },
+    },
+  },
+  // Handle PDF.js worker assets
+  assetsInclude: ['**/*.worker.js', '**/*.worker.min.js'],
 }));

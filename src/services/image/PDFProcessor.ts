@@ -1,3 +1,4 @@
+
 import * as pdfjsLib from 'pdfjs-dist';
 import { UploadedFile, ProcessingParameters } from "@/types/print";
 import { ImageRenderer } from "./ImageRenderer";
@@ -13,113 +14,155 @@ export class PDFProcessor {
   private async initializeWorker(): Promise<void> {
     if (this.workerInitialized) return;
 
-    // === BEGIN Enhanced Logging for Asset Path Debugging ===
-    let localWorkerSrc: string | undefined = undefined;
-    try {
-      // Attempt to resolve the local worker asset path
-      localWorkerSrc = new URL('pdfjs-dist/build/pdf.worker.min.js', import.meta.url).href;
-      console.log('[PDFProcessor] Resolved local PDF.js worker src to:', localWorkerSrc);
+    console.log('[PDFProcessor] Initializing PDF.js worker...');
 
-      // Try a fetch of the worker script to confirm asset exists and is being served
-      const fetchResponse = await fetch(localWorkerSrc, { method: 'GET' });
-      if (!fetchResponse.ok) {
-        throw new Error(`Failed to fetch local worker asset at "${localWorkerSrc}" (status ${fetchResponse.status})`);
+    try {
+      // Try different worker source strategies based on environment
+      const workerSources = [
+        // Strategy 1: Use local bundled worker
+        () => new URL('pdfjs-dist/build/pdf.worker.min.js', import.meta.url).href,
+        // Strategy 2: Use CDN fallback
+        () => 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js',
+        // Strategy 3: Use unpkg CDN
+        () => 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js'
+      ];
+
+      let workerInitialized = false;
+      let lastError: Error | null = null;
+
+      for (let i = 0; i < workerSources.length && !workerInitialized; i++) {
+        try {
+          const workerSrc = workerSources[i]();
+          console.log(`[PDFProcessor] Trying worker source ${i + 1}:`, workerSrc);
+
+          // Test if the worker source is accessible
+          if (workerSrc.startsWith('http')) {
+            const testResponse = await fetch(workerSrc, { method: 'HEAD' });
+            if (!testResponse.ok) {
+              throw new Error(`Worker source not accessible: ${testResponse.status}`);
+            }
+          }
+
+          // Set the worker source
+          pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
+
+          // Test the worker with a minimal PDF
+          console.log('[PDFProcessor] Testing worker with minimal PDF...');
+          const testData = new Uint8Array([
+            0x25, 0x50, 0x44, 0x46, 0x2D, 0x31, 0x2E, 0x34, 0x0A,
+            0x25, 0xC4, 0xE5, 0xF2, 0xE5, 0xEB, 0xA7, 0xF3, 0xA0, 0xD0, 0xC4, 0xC6, 0x0A
+          ]);
+
+          const loadingTask = pdfjsLib.getDocument({ 
+            data: testData,
+            verbosity: 0 
+          });
+
+          await Promise.race([
+            loadingTask.promise,
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Worker test timeout')), 5000)
+            )
+          ]);
+
+          console.log(`[PDFProcessor] Worker source ${i + 1} successful!`);
+          workerInitialized = true;
+          this.workerInitialized = true;
+
+        } catch (error) {
+          console.log(`[PDFProcessor] Worker source ${i + 1} failed:`, error);
+          lastError = error instanceof Error ? error : new Error(String(error));
+        }
       }
-    } catch (assetError) {
-      console.error('[PDFProcessor] PDF.js worker asset resolution/load error:', assetError);
-      throw new Error(
-        `PDF.js worker asset could not be loaded at "${localWorkerSrc}".
-Please check that "pdf.worker.min.js" is present in your build output and is being served by your dev server. 
-If using Vite, sometimes static dependencies are not copied to the dist folder. 
-Try running \`npm install pdfjs-dist\` or \`bun install pdfjs-dist\`, and make sure nothing is interfering with the import.meta.url resolution.
-You can also try importing and copying the file manually from \`node_modules/pdfjs-dist/build/pdf.worker.min.js\` into your public/static folder for Vite to serve it.
-If this persists, you may need to process your file as PNG/JPG instead of PDF.`
-      );
-    }
-    // === END Enhanced Logging for Asset Path Debugging ===
 
-    try {
-      console.log('Initializing PDF.js worker for local asset ONLY...');
-      pdfjsLib.GlobalWorkerOptions.workerSrc = localWorkerSrc!;
-      console.log('[PDFProcessor] Using local workerSrc:', localWorkerSrc);
+      if (!workerInitialized) {
+        throw new Error(
+          `All PDF.js worker sources failed. Last error: ${lastError?.message || 'Unknown error'}. ` +
+          'This may be due to network connectivity issues or browser security restrictions. ' +
+          'Please try converting your PDF to PNG/JPG format instead.'
+        );
+      }
 
-      // Test: Try to load a minimal doc via worker
-      const testData = new Uint8Array([
-        0x25, 0x50, 0x44, 0x46, 0x2D, 0x31, 0x2E, 0x34, 0x0A, 0x25, 0xC4, 0xE5, 0xF2, 0xE5, 0xEB, 0xA7, 0xF3, 0xA0, 0xD0, 0xC4, 0xC6, 0x0A
-      ]);
-      const loadingTask = pdfjsLib.getDocument({ data: testData });
-      await Promise.race([
-        loadingTask.promise,
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Worker test timeout')), 3000))
-      ]);
-      this.workerInitialized = true;
-      console.log('PDF.js worker initialized successfully and via local asset.');
-      return;
     } catch (error) {
-      console.error('Failed to initialize PDF.js worker using local asset:', error);
-      throw new Error('PDF.js worker initialization failed (local asset). See above logs for details. PDF export from PDF source will not work until this is resolved.');
+      console.error('[PDFProcessor] Worker initialization failed:', error);
+      throw new Error(
+        'PDF.js worker could not be initialized. ' +
+        (error instanceof Error ? error.message : String(error)) +
+        ' Please try converting your PDF to PNG/JPG format instead.'
+      );
     }
   }
 
   async processPDF(file: UploadedFile, parameters: ProcessingParameters): Promise<HTMLImageElement> {
-    console.log('=== PDF PROCESSING START ===');
-    console.log('Processing PDF file:', file.file.name);
+    console.log('[PDFProcessor] === PDF PROCESSING START ===');
+    console.log('[PDFProcessor] Processing PDF file:', file.file.name);
     
     try {
-      // Initialize worker first
+      // Initialize worker first with better error handling
       await this.initializeWorker();
       
       // Convert file to ArrayBuffer for PDF.js
       const arrayBuffer = await file.file.arrayBuffer();
-      console.log('PDF file converted to ArrayBuffer, size:', arrayBuffer.byteLength);
+      console.log('[PDFProcessor] PDF file converted to ArrayBuffer, size:', arrayBuffer.byteLength);
       
       if (arrayBuffer.byteLength === 0) {
         throw new Error('PDF file appears to be empty');
       }
       
-      // Load the PDF document with better configuration
-      console.log('Loading PDF document...');
+      if (arrayBuffer.byteLength > 100 * 1024 * 1024) { // 100MB limit
+        throw new Error('PDF file is too large (>100MB). Please use a smaller file.');
+      }
+      
+      // Load the PDF document with optimized configuration
+      console.log('[PDFProcessor] Loading PDF document...');
       const loadingTask = pdfjsLib.getDocument({ 
         data: arrayBuffer,
-        verbosity: 0,
+        verbosity: 0, // Reduce console noise
         useWorkerFetch: false, // Disable worker fetch to avoid network issues
         isEvalSupported: false, // Disable eval for security
         disableFontFace: false, // Keep fonts enabled for better rendering
-        useSystemFonts: true // Use system fonts as fallback
+        useSystemFonts: true, // Use system fonts as fallback
+        maxImageSize: 50 * 1024 * 1024, // 50MB max image size
+        cMapPacked: true // Use packed CMaps for better performance
       });
       
-      // Add timeout to prevent hanging - properly type the result
+      // Add timeout to prevent hanging
       const pdfPromise = loadingTask.promise;
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('PDF loading timeout after 30 seconds')), 30000);
+        setTimeout(() => reject(new Error('PDF loading timeout after 20 seconds')), 20000);
       });
       
       const pdf = await Promise.race([pdfPromise, timeoutPromise]);
-      console.log(`PDF loaded successfully. Pages: ${pdf.numPages}`);
+      console.log(`[PDFProcessor] PDF loaded successfully. Pages: ${pdf.numPages}`);
       
       if (pdf.numPages === 0) {
         throw new Error('PDF has no pages');
       }
       
       // Get the first page
-      console.log('Getting first page...');
+      console.log('[PDFProcessor] Getting first page...');
       const page = await pdf.getPage(1);
-      console.log('PDF page loaded successfully');
+      console.log('[PDFProcessor] PDF page loaded successfully');
       
-      // Get the viewport for the page - use scale for good quality
-      const scale = 2.0;
+      // Get the viewport for the page - use appropriate scale for quality vs performance
+      const scale = Math.min(2.0, Math.max(1.0, 300 / 150)); // Scale based on target DPI
       const viewport = page.getViewport({ scale });
-      console.log(`PDF viewport: ${viewport.width}x${viewport.height} at scale ${scale}`);
+      console.log(`[PDFProcessor] PDF viewport: ${viewport.width}x${viewport.height} at scale ${scale}`);
       
       if (viewport.width === 0 || viewport.height === 0) {
         throw new Error('PDF page has invalid dimensions');
+      }
+      
+      // Check if dimensions are reasonable
+      if (viewport.width > 8000 || viewport.height > 8000) {
+        throw new Error('PDF page dimensions are too large. Please use a smaller PDF or convert to image.');
       }
       
       // Create a canvas for the PDF page
       const pdfCanvas = document.createElement('canvas');
       const pdfContext = pdfCanvas.getContext('2d', {
         alpha: false, // Disable alpha for better performance
-        willReadFrequently: true // Optimize for frequent reading
+        willReadFrequently: false // We won't read frequently, optimize for rendering
       });
       
       if (!pdfContext) {
@@ -128,84 +171,93 @@ If this persists, you may need to process your file as PNG/JPG instead of PDF.`
       
       pdfCanvas.width = Math.floor(viewport.width);
       pdfCanvas.height = Math.floor(viewport.height);
-      console.log(`Canvas dimensions set to: ${pdfCanvas.width}x${pdfCanvas.height}`);
+      console.log(`[PDFProcessor] Canvas dimensions set to: ${pdfCanvas.width}x${pdfCanvas.height}`);
       
       // Set white background for the PDF canvas
       pdfContext.fillStyle = '#FFFFFF';
       pdfContext.fillRect(0, 0, pdfCanvas.width, pdfCanvas.height);
-      console.log('Canvas background set to white');
+      console.log('[PDFProcessor] Canvas background set to white');
       
       // Render the PDF page to the canvas with timeout
       const renderContext = {
         canvasContext: pdfContext,
         viewport: viewport,
         background: 'white',
-        intent: 'display' // Optimize for display
+        intent: 'display' as const, // Optimize for display
+        renderInteractiveForms: false, // Disable forms for faster rendering
+        annotationMode: pdfjsLib.AnnotationMode.DISABLE // Disable annotations
       };
       
-      console.log('Starting PDF page render...');
+      console.log('[PDFProcessor] Starting PDF page render...');
       
-      // Add timeout to prevent hanging - properly type the result
+      // Add timeout to prevent hanging
       const renderPromise = page.render(renderContext).promise;
       const renderTimeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('PDF render timeout after 45 seconds')), 45000);
+        setTimeout(() => reject(new Error('PDF render timeout after 30 seconds')), 30000);
       });
       
       await Promise.race([renderPromise, renderTimeoutPromise]);
-      console.log('PDF page rendered to canvas successfully');
+      console.log('[PDFProcessor] PDF page rendered to canvas successfully');
       
       // Verify canvas has content
       const imageData = pdfContext.getImageData(0, 0, Math.min(pdfCanvas.width, 100), Math.min(pdfCanvas.height, 100));
       const hasContent = this.verifyCanvasContent(imageData);
-      console.log('Canvas content verification:', hasContent);
+      console.log('[PDFProcessor] Canvas content verification:', hasContent);
       
       if (!hasContent) {
-        throw new Error('PDF rendered to blank canvas');
+        throw new Error('PDF rendered to blank canvas - the PDF may be corrupted or empty');
       }
       
       // Convert the PDF canvas to an image
       const img = new Image();
       return new Promise((resolve, reject) => {
         const timeoutId = setTimeout(() => {
-          reject(new Error('Image load timeout'));
-        }, 15000);
+          reject(new Error('Image conversion timeout'));
+        }, 10000);
         
         img.onload = () => {
           clearTimeout(timeoutId);
-          console.log(`PDF converted to image: ${img.width}x${img.height}`);
-          console.log('=== PDF PROCESSING SUCCESS ===');
+          console.log(`[PDFProcessor] PDF converted to image: ${img.width}x${img.height}`);
+          console.log('[PDFProcessor] === PDF PROCESSING SUCCESS ===');
           resolve(img);
         };
         
         img.onerror = (error) => {
           clearTimeout(timeoutId);
-          console.error('Failed to load PDF as image:', error);
-          reject(new Error('Failed to load PDF as image'));
+          console.error('[PDFProcessor] Failed to load PDF as image:', error);
+          reject(new Error('Failed to convert PDF to image'));
         };
         
-        // Use high quality settings with better compression
-        const dataUrl = pdfCanvas.toDataURL('image/png', 0.95);
-        console.log('Canvas converted to data URL, length:', dataUrl.length);
-        
-        if (dataUrl.length < 1000) {
-          reject(new Error('Generated data URL is too small'));
-          return;
+        // Use high quality PNG with reasonable compression
+        try {
+          const dataUrl = pdfCanvas.toDataURL('image/png', 0.95);
+          console.log('[PDFProcessor] Canvas converted to data URL, length:', dataUrl.length);
+          
+          if (dataUrl.length < 1000) {
+            reject(new Error('Generated data URL is too small - PDF may be empty'));
+            return;
+          }
+          
+          img.src = dataUrl;
+        } catch (canvasError) {
+          clearTimeout(timeoutId);
+          reject(new Error('Failed to convert canvas to data URL'));
         }
-        
-        img.src = dataUrl;
       });
       
     } catch (error) {
-      console.error('=== PDF PROCESSING ERROR ===');
-      console.error('Error processing PDF:', error);
+      console.error('[PDFProcessor] === PDF PROCESSING ERROR ===');
+      console.error('[PDFProcessor] Error processing PDF:', error);
       
       // Provide more detailed error information
       let errorMessage = 'PDF processing failed';
       if (error instanceof Error) {
-        if (error.message.includes('worker') || error.message.includes('fetch')) {
-          errorMessage = 'PDF.js worker loading failed. Please check your internet connection and try again.';
+        if (error.message.includes('worker') || error.message.includes('Worker')) {
+          errorMessage = 'PDF.js worker loading failed. Please check your internet connection and try again, or convert your PDF to PNG/JPG.';
         } else if (error.message.includes('timeout')) {
-          errorMessage = 'PDF processing took too long. The file might be too complex or large.';
+          errorMessage = 'PDF processing took too long. The file might be too complex or large. Try a simpler PDF or convert to PNG/JPG.';
+        } else if (error.message.includes('network') || error.message.includes('fetch')) {
+          errorMessage = 'Network error during PDF processing. Please check your connection and try again.';
         } else {
           errorMessage = `PDF processing failed: ${error.message}`;
         }
@@ -218,6 +270,7 @@ If this persists, you may need to process your file as PNG/JPG instead of PDF.`
   private verifyCanvasContent(imageData: ImageData): boolean {
     const { data } = imageData;
     let nonWhitePixels = 0;
+    let totalPixels = 0;
     
     // Check if any pixels are significantly different from white
     for (let i = 0; i < data.length; i += 4) {
@@ -226,13 +279,18 @@ If this persists, you may need to process your file as PNG/JPG instead of PDF.`
       const b = data[i + 2];
       const a = data[i + 3];
       
+      totalPixels++;
+      
       // If we find any non-white pixel with reasonable alpha
       if (a > 128 && (r < 240 || g < 240 || b < 240)) {
         nonWhitePixels++;
       }
     }
     
-    console.log('Non-white pixels found:', nonWhitePixels);
-    return nonWhitePixels > 10; // Need at least 10 non-white pixels to consider it valid content
+    const contentRatio = nonWhitePixels / totalPixels;
+    console.log(`[PDFProcessor] Content verification: ${nonWhitePixels}/${totalPixels} pixels (${(contentRatio * 100).toFixed(1)}%)`);
+    
+    // Need at least 1% non-white pixels to consider it valid content
+    return contentRatio > 0.01;
   }
 }
