@@ -1,4 +1,3 @@
-
 import { ProcessingParameters, UploadedFile } from "@/types/print";
 import { ProcessingResult, CanvasContext } from "./types";
 import { PDFProcessor } from "./PDFProcessor";
@@ -138,7 +137,7 @@ export class ImageProcessor {
       this.updateProgress('Applying AI content extrapolation for bleed areas', 40);
       console.log('Performing AI-powered content extrapolation');
       try {
-        await this.aiBleedProcessor.processIntelligentBleed(bleedPixels, finalWidth, finalHeight, (parameters as any).bleedPrompt);
+        await this.aiBleedProcessor.processIntelligentBleed((parameters as any).bleedPrompt || '');
         console.log('AI content extrapolation completed successfully');
       } catch (error) {
         if (this.cancellationToken.isCancelled) {
