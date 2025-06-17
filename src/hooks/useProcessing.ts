@@ -5,6 +5,7 @@ import { ImageProcessor, createPDFFromProcessedImage } from "@/services/imagePro
 import { useToast } from "@/components/ui/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { ProcessingResult } from "@/services/image/types";
 
 export function useProcessing() {
   const [processingState, setProcessingState] = useState<ProcessingState>("idle");
@@ -90,10 +91,10 @@ export function useProcessing() {
       
       const result = await Promise.race([
         processor.processFile(uploadedFile, extendedParameters),
-        new Promise((_, reject) => 
+        new Promise<never>((_, reject) => 
           setTimeout(() => reject(new Error('Processing timeout after 60 seconds')), 60000)
         )
-      ]);
+      ]) as ProcessingResult;
       
       console.log('[useProcessing] File processing completed:', result);
       setProcessedImageUrl(result.processedImageUrl);
@@ -106,10 +107,10 @@ export function useProcessing() {
       
       const pdfBlob = await Promise.race([
         createPDFFromProcessedImage(result.processedImageUrl, parameters),
-        new Promise((_, reject) => 
+        new Promise<never>((_, reject) => 
           setTimeout(() => reject(new Error('PDF creation timeout after 30 seconds')), 30000)
         )
-      ]);
+      ]) as Blob;
       
       console.log('[useProcessing] PDF created successfully, size:', pdfBlob.size);
 

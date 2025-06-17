@@ -77,7 +77,7 @@ export class ProcessingWorkflow {
       try {
         await Promise.race([
           this.aiBleedProcessor.processIntelligentBleed(bleedPixels, finalWidth, finalHeight, (parameters as any).bleedPrompt || ''),
-          new Promise((_, reject) => 
+          new Promise<never>((_, reject) => 
             setTimeout(() => reject(new Error('AI bleed processing timeout')), 45000)
           )
         ]);
@@ -112,10 +112,10 @@ export class ProcessingWorkflow {
     
     const processedImageUrl = await Promise.race([
       canvasToDataURL(this.canvas),
-      new Promise((_, reject) => 
+      new Promise<never>((_, reject) => 
         setTimeout(() => reject(new Error('Canvas export timeout')), 10000)
       )
-    ]);
+    ]) as string;
     
     console.log('[ProcessingWorkflow] High-resolution export completed, size:', processedImageUrl.length);
     
