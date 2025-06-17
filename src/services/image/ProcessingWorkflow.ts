@@ -34,7 +34,7 @@ export class ProcessingWorkflow {
   }
 
   private updateProgress(step: string, progress?: number) {
-    console.log(`[New Workflow] ${step}${progress !== undefined ? ` (${progress.toFixed(1)}%)` : ''}`);
+    console.log(`[ProcessingWorkflow] ${step}${progress !== undefined ? ` (${progress.toFixed(1)}%)` : ''}`);
     if (this.onProgressUpdate) {
       this.onProgressUpdate(step, progress);
     }
@@ -43,7 +43,7 @@ export class ProcessingWorkflow {
   async processImageWithNewWorkflow(img: HTMLImageElement, parameters: ProcessingParameters): Promise<ProcessingResult> {
     const originalDimensions = { width: img.width, height: img.height };
     console.log('=== NEW WORKFLOW IMAGE PROCESSING ===');
-    console.log('Processing with streamlined workflow. Original dimensions:', originalDimensions);
+    console.log('[ProcessingWorkflow] Processing with streamlined workflow. Original dimensions:', originalDimensions);
     
     this.cancellationToken.throwIfCancelled();
     
@@ -55,15 +55,15 @@ export class ProcessingWorkflow {
     const canvasWidth = finalWidth + (bleedPixels * 2);
     const canvasHeight = finalHeight + (bleedPixels * 2);
     
-    console.log(`Target dimensions: ${finalWidth}x${finalHeight}px (${parameters.finalDimensions.width}x${parameters.finalDimensions.height}mm at ${parameters.dpi}DPI)`);
-    console.log(`Canvas with bleed: ${canvasWidth}x${canvasHeight}px (includes ${bleedPixels}px bleed)`);
+    console.log(`[ProcessingWorkflow] Target dimensions: ${finalWidth}x${finalHeight}px (${parameters.finalDimensions.width}x${parameters.finalDimensions.height}mm at ${parameters.dpi}DPI)`);
+    console.log(`[ProcessingWorkflow] Canvas with bleed: ${canvasWidth}x${canvasHeight}px (includes ${bleedPixels}px bleed)`);
     
     // Step 1: Setup canvas and position content
     console.log('=== STEP 1: CANVAS SETUP & RESIZE ===');
     this.updateProgress('Setting up canvas and resizing content', 20);
     this.imageRenderer.setupCanvas(canvasWidth, canvasHeight);
     await this.imageRenderer.resizeAndPositionContent(img, finalWidth, finalHeight, bleedPixels);
-    console.log('Content positioned successfully');
+    console.log('[ProcessingWorkflow] Content positioned successfully');
     
     this.cancellationToken.throwIfCancelled();
     
@@ -73,20 +73,25 @@ export class ProcessingWorkflow {
     
     if (aiConfig.hasAnyKey) {
       this.updateProgress('Applying AI content extrapolation for bleed areas', 40);
-      console.log('Performing AI-powered content extrapolation');
+      console.log('[ProcessingWorkflow] Performing AI-powered content extrapolation');
       try {
-        await this.aiBleedProcessor.processIntelligentBleed(bleedPixels, finalWidth, finalHeight, (parameters as any).bleedPrompt || '');
-        console.log('AI content extrapolation completed successfully');
+        await Promise.race([
+          this.aiBleedProcessor.processIntelligentBleed(bleedPixels, finalWidth, finalHeight, (parameters as any).bleedPrompt || ''),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('AI bleed processing timeout')), 45000)
+          )
+        ]);
+        console.log('[ProcessingWorkflow] AI content extrapolation completed successfully');
       } catch (error) {
         if (this.cancellationToken.isCancelled) {
           throw error;
         }
-        console.log('AI extrapolation failed, using standard fill methods:', error);
-        this.updateProgress('AI failed, using standard bleed fill', 50);
+        console.log('[ProcessingWorkflow] AI extrapolation failed or timed out, using standard fill methods:', error);
+        this.updateProgress('AI timed out, using standard bleed fill', 50);
         BleedFallbackFiller.finalFillBleedFromEdge(this.ctx, bleedPixels, finalWidth, finalHeight);
       }
     } else {
-      console.log('No AI keys configured, using standard bleed fill');
+      console.log('[ProcessingWorkflow] No AI keys configured, using standard bleed fill');
       this.updateProgress('Using standard bleed fill methods', 40);
       BleedFallbackFiller.finalFillBleedFromEdge(this.ctx, bleedPixels, finalWidth, finalHeight);
     }
@@ -97,21 +102,28 @@ export class ProcessingWorkflow {
     console.log('=== STEP 3: ADDING CUT LINES ===');
     this.updateProgress('Adding cut lines', 80);
     this.cutLineRenderer.addCutLines(parameters, finalWidth, finalHeight, bleedPixels);
-    console.log('Cut lines added successfully');
+    console.log('[ProcessingWorkflow] Cut lines added successfully');
     
     this.cancellationToken.throwIfCancelled();
     
     // Step 4: Export as high-resolution data
     console.log('=== STEP 4: EXPORT HIGH-RESOLUTION ===');
     this.updateProgress('Exporting high-resolution image', 90);
-    const processedImageUrl = await canvasToDataURL(this.canvas);
-    console.log('High-resolution export completed, size:', processedImageUrl.length);
+    
+    const processedImageUrl = await Promise.race([
+      canvasToDataURL(this.canvas),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Canvas export timeout')), 10000)
+      )
+    ]);
+    
+    console.log('[ProcessingWorkflow] High-resolution export completed, size:', processedImageUrl.length);
     
     this.cancellationToken.throwIfCancelled();
     
     // Validate the output
     if (processedImageUrl.length < 1000) {
-      console.error('Generated image URL is suspiciously small');
+      console.error('[ProcessingWorkflow] Generated image URL is suspiciously small');
       throw new Error('Generated image appears to be empty or corrupted');
     }
     
