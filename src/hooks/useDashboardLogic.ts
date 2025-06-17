@@ -1,4 +1,5 @@
 
+import { UploadedFile } from "@/types/print";
 import { useFileUpload } from "./useFileUpload";
 import { useValidation } from "./useValidation";
 import { useProcessing } from "./useProcessing";
