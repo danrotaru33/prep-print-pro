@@ -1,4 +1,3 @@
-
 import { ProcessingParameters, UploadedFile } from "@/types/print";
 import { ProcessingResult, CanvasContext } from "./types";
 import { PDFProcessor } from "./PDFProcessor";

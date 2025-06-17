@@ -13,47 +13,42 @@ interface ApiKeySettingsProps {
 }
 
 export const ApiKeySettings = ({ onKeysChange }: ApiKeySettingsProps) => {
-  const [openaiKey, setOpenaiKey] = useState("");
   const [huggingfaceKey, setHuggingfaceKey] = useState("");
   const [isOpen, setIsOpen] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
     // Load saved keys from localStorage
-    const savedOpenaiKey = localStorage.getItem('openai_api_key') || "";
     const savedHuggingfaceKey = localStorage.getItem('huggingface_api_key') || "";
-    setOpenaiKey(savedOpenaiKey);
     setHuggingfaceKey(savedHuggingfaceKey);
     
-    // Notify parent of current keys
+    // Notify parent of current keys (only HuggingFace now)
     if (onKeysChange) {
       onKeysChange({
-        openai: savedOpenaiKey,
         huggingface: savedHuggingfaceKey
       });
     }
   }, [onKeysChange]);
 
   const handleSave = () => {
-    localStorage.setItem('openai_api_key', openaiKey);
     localStorage.setItem('huggingface_api_key', huggingfaceKey);
     
     if (onKeysChange) {
       onKeysChange({
-        openai: openaiKey,
         huggingface: huggingfaceKey
       });
     }
 
     toast({
-      title: "API Keys Saved",
-      description: "Your API keys have been saved locally and will be used for AI bleed generation.",
+      title: "API Key Saved",
+      description: "Your HuggingFace API key has been saved locally and will be used for AI bleed generation.",
     });
     
     setIsOpen(false);
   };
 
-  const hasAnyKey = openaiKey.length > 0 || huggingfaceKey.length > 0;
+  const hasKey = huggingfaceKey.length > 0;
+  const isKeyHidden = hasKey && !isOpen;
 
   return (
     <Card>
@@ -63,53 +58,38 @@ export const ApiKeySettings = ({ onKeysChange }: ApiKeySettingsProps) => {
             <Settings className="h-5 w-5" />
             <span>AI Configuration</span>
           </div>
-          <Badge variant={hasAnyKey ? "default" : "outline"}>
-            {hasAnyKey ? "Configured" : "Optional"}
+          <Badge variant={hasKey ? "default" : "outline"}>
+            {hasKey ? "Configured" : "Optional"}
           </Badge>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="text-sm text-gray-600">
-          <p>Configure API keys to enable AI-powered bleed generation.</p>
+          <p>Configure HuggingFace API key to enable AI-powered bleed generation.</p>
           <p className="text-xs mt-1">
-            Without API keys, the system will use fallback methods for bleed areas.
+            Without an API key, the system will use fallback methods for bleed areas.
           </p>
         </div>
 
         {!isOpen ? (
-          <Button 
-            onClick={() => setIsOpen(true)} 
-            variant="outline" 
-            className="w-full"
-          >
-            Configure API Keys
-          </Button>
+          <div className="space-y-2">
+            {isKeyHidden && (
+              <div className="p-2 bg-green-50 border border-green-200 rounded text-sm text-green-700">
+                ✓ HuggingFace API key is configured and saved
+              </div>
+            )}
+            <Button 
+              onClick={() => setIsOpen(true)} 
+              variant="outline" 
+              className="w-full"
+            >
+              {hasKey ? "Update API Key" : "Configure API Key"}
+            </Button>
+          </div>
         ) : (
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="openai-key">OpenAI API Key (Primary)</Label>
-              <Input
-                id="openai-key"
-                type="password"
-                placeholder="sk-..."
-                value={openaiKey}
-                onChange={(e) => setOpenaiKey(e.target.value)}
-              />
-              <p className="text-xs text-gray-500">
-                For DALL-E 3 inpainting. Get one at{" "}
-                <a 
-                  href="https://platform.openai.com/api-keys" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="text-blue-600 hover:underline"
-                >
-                  OpenAI
-                </a>
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="huggingface-key">HuggingFace API Key (Fallback)</Label>
+              <Label htmlFor="huggingface-key">HuggingFace API Key (Primary)</Label>
               <Input
                 id="huggingface-key"
                 type="password"
@@ -118,7 +98,7 @@ export const ApiKeySettings = ({ onKeysChange }: ApiKeySettingsProps) => {
                 onChange={(e) => setHuggingfaceKey(e.target.value)}
               />
               <p className="text-xs text-gray-500">
-                For LaMa inpainting fallback. Get one at{" "}
+                For LaMa inpainting. Get one at{" "}
                 <a 
                   href="https://huggingface.co/settings/tokens" 
                   target="_blank" 
@@ -132,7 +112,7 @@ export const ApiKeySettings = ({ onKeysChange }: ApiKeySettingsProps) => {
 
             <div className="flex space-x-2">
               <Button onClick={handleSave} className="flex-1">
-                Save Keys
+                Save Key
               </Button>
               <Button 
                 onClick={() => setIsOpen(false)} 
