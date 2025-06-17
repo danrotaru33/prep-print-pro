@@ -7,6 +7,7 @@ import { CutLineRenderer } from "./CutLineRenderer";
 import { CancellationToken } from "./CancellationToken";
 import { mmToPixels, canvasToDataURL } from "./utils";
 import { AIInpaintingService } from "./AIInpaintingService";
+import { BleedFallbackFiller } from "./BleedFallbackFiller";
 
 export class ImageProcessor {
   private canvas: HTMLCanvasElement;
@@ -137,7 +138,7 @@ export class ImageProcessor {
       this.updateProgress('Applying AI content extrapolation for bleed areas', 40);
       console.log('Performing AI-powered content extrapolation');
       try {
-        await this.aiBleedProcessor.processIntelligentBleed((parameters as any).bleedPrompt || '');
+        await this.aiBleedProcessor.processIntelligentBleed(bleedPixels, finalWidth, finalHeight, (parameters as any).bleedPrompt || '');
         console.log('AI content extrapolation completed successfully');
       } catch (error) {
         if (this.cancellationToken.isCancelled) {
@@ -145,12 +146,12 @@ export class ImageProcessor {
         }
         console.log('AI extrapolation failed, using standard fill methods:', error);
         this.updateProgress('AI failed, using standard bleed fill', 50);
-        await this.fallbackBleedFill(bleedPixels, finalWidth, finalHeight);
+        BleedFallbackFiller.finalFillBleedFromEdge(this.ctx, bleedPixels, finalWidth, finalHeight);
       }
     } else {
       console.log('No AI keys configured, using standard bleed fill');
       this.updateProgress('Using standard bleed fill methods', 40);
-      await this.fallbackBleedFill(bleedPixels, finalWidth, finalHeight);
+      BleedFallbackFiller.finalFillBleedFromEdge(this.ctx, bleedPixels, finalWidth, finalHeight);
     }
     
     this.cancellationToken.throwIfCancelled();
