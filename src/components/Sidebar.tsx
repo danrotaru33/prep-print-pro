@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { AIKeySetup } from "@/components/AIKeySetup";
 
 interface SidebarProps {
   parameters: ProcessingParameters;
@@ -175,6 +176,10 @@ export const Sidebar = ({ parameters, onParameterChange, processingState }: Side
           </div>
         </CardContent>
       </Card>
+
+      <div className="mt-6">
+        <AIKeySetup />
+      </div>
     </aside>
   );
 };

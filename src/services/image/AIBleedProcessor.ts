@@ -27,18 +27,13 @@ export class AIBleedProcessor {
       const marginAreas = MarginAreaExtractor.extractAllBleedMarginAreas(bleedPixels, finalWidth, finalHeight);
       console.log(`[AIBleedProcessor] Extracted ${marginAreas.length} margin areas to fill with AI.`);
 
-      // Process areas with timeout protection
+      // Process areas sequentially with better error handling
       for (let i = 0; i < marginAreas.length; i++) {
         const area = marginAreas[i];
         console.log(`[AIBleedProcessor] Processing area ${i + 1}/${marginAreas.length}:`, area.type);
         
         try {
-          await Promise.race([
-            this.processMarginArea(area, bleedPrompt),
-            new Promise((_, reject) => 
-              setTimeout(() => reject(new Error(`AI processing timeout for ${area.type} area`)), 20000)
-            )
-          ]);
+          await this.processMarginArea(area, bleedPrompt);
           console.log(`[AIBleedProcessor] Completed AI fill for ${area.type} margin`);
         } catch (aiErr: any) {
           console.warn(`[AIBleedProcessor] Failed AI fill for margin "${area.type}" (${aiErr.message}), continuing to next area`);

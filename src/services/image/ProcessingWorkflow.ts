@@ -75,19 +75,22 @@ export class ProcessingWorkflow {
       this.updateProgress('Applying AI content extrapolation for bleed areas', 40);
       console.log('[ProcessingWorkflow] Performing AI-powered content extrapolation');
       try {
-        await Promise.race([
-          this.aiBleedProcessor.processIntelligentBleed(bleedPixels, finalWidth, finalHeight, (parameters as any).bleedPrompt || ''),
-          new Promise<never>((_, reject) => 
-            setTimeout(() => reject(new Error('AI bleed processing timeout')), 45000)
-          )
-        ]);
+        // Set a reasonable timeout for AI processing
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+          controller.abort();
+          console.log('[ProcessingWorkflow] AI processing timeout reached');
+        }, 30000); // 30 seconds total
+
+        await this.aiBleedProcessor.processIntelligentBleed(bleedPixels, finalWidth, finalHeight, (parameters as any).bleedPrompt || '');
+        clearTimeout(timeoutId);
         console.log('[ProcessingWorkflow] AI content extrapolation completed successfully');
-      } catch (error) {
+      } catch (error: any) {
         if (this.cancellationToken.isCancelled) {
           throw error;
         }
-        console.log('[ProcessingWorkflow] AI extrapolation failed or timed out, using standard fill methods:', error);
-        this.updateProgress('AI timed out, using standard bleed fill', 50);
+        console.log('[ProcessingWorkflow] AI extrapolation failed or timed out, using standard fill methods:', error?.message || error);
+        this.updateProgress('AI processing failed, using standard bleed fill', 50);
         BleedFallbackFiller.finalFillBleedFromEdge(this.ctx, bleedPixels, finalWidth, finalHeight);
       }
     } else {
