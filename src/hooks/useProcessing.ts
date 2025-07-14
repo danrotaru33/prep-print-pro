@@ -3,8 +3,6 @@ import { useState, useRef } from "react";
 import { UploadedFile, ProcessingParameters, ProcessingState } from "@/types/print";
 import { ImageProcessor, createPDFFromProcessedImage } from "@/services/imageProcessing";
 import { useToast } from "@/components/ui/use-toast";
-import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
 import { ProcessingResult } from "@/services/image/types";
 
 export function useProcessing() {
@@ -15,7 +13,6 @@ export function useProcessing() {
   const [processingProgress, setProcessingProgress] = useState<number>(0);
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
   const { toast } = useToast();
-  const { user } = useAuth();
   const imageProcessorRef = useRef<ImageProcessor | null>(null);
 
   const handleCancelProcessing = () => {
@@ -44,28 +41,15 @@ export function useProcessing() {
       console.error('[useProcessing] No uploaded file provided');
       return;
     }
-    
-    if (!user) {
-      console.error('[useProcessing] No user authenticated');
-      toast({
-        title: "Not Signed In",
-        description: "You must be signed in to process files.",
-        variant: "destructive",
-      });
-      return;
-    }
 
     const extendedParameters = { ...parameters, bleedPrompt };
 
     setProcessingState("processing");
-    setProcessingStep("Initializing new workflow processor");
+    setProcessingStep("Initializing processor");
     setProcessingError(null);
     setProcessingProgress(0);
-    console.log('=== NEW WORKFLOW START ===');
-    console.log('[useProcessing] Starting new workflow with parameters:', extendedParameters);
-
-    let outputFilename = "";
-    let outputFileUrl = "";
+    console.log('=== PROCESSING START ===');
+    console.log('[useProcessing] Starting processing with parameters:', extendedParameters);
 
     try {
       // Step 1: Initialize processor with progress callback
@@ -84,9 +68,9 @@ export function useProcessing() {
       imageProcessorRef.current = processor;
       console.log('[useProcessing] Processor initialized successfully');
 
-      // Step 2: Process file with new workflow
+      // Step 2: Process file
       console.log('[useProcessing] Step 2: Starting file processing');
-      setProcessingStep("Processing with new workflow");
+      setProcessingStep("Processing image");
       setProcessingProgress(10);
       
       const result = await Promise.race([
@@ -98,12 +82,12 @@ export function useProcessing() {
       
       console.log('[useProcessing] File processing completed:', result);
       setProcessedImageUrl(result.processedImageUrl);
-      setProcessingProgress(85);
+      setProcessingProgress(70);
 
-      // Step 3: Create high-resolution PDF
+      // Step 3: Create PDF for download
       console.log('[useProcessing] Step 3: Creating PDF');
-      setProcessingStep("Creating high-resolution PDF");
-      setProcessingProgress(88);
+      setProcessingStep("Creating PDF for download");
+      setProcessingProgress(80);
       
       const pdfBlob = await Promise.race([
         createPDFFromProcessedImage(result.processedImageUrl, parameters),
@@ -114,78 +98,14 @@ export function useProcessing() {
       
       console.log('[useProcessing] PDF created successfully, size:', pdfBlob.size);
 
-      // Step 4: Upload to Supabase
-      console.log('[useProcessing] Step 4: Uploading to Supabase');
-      setProcessingStep("Uploading final PDF");
-      setProcessingProgress(92);
+      // Step 4: Create download URL
+      setProcessingStep("Preparing download");
+      setProcessingProgress(95);
       
-      const uniqueId = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
-      const ext = ".pdf";
-      outputFilename = `${user.id}/printready_${uniqueId}${ext}`;
+      const pdfUrl = URL.createObjectURL(pdfBlob);
+      setOutputUrl(pdfUrl);
       
-      const { data: uploadData, error: uploadError } = await supabase
-        .storage
-        .from('processed-files')
-        .upload(outputFilename, pdfBlob, {
-          cacheControl: '3600',
-          upsert: false,
-          contentType: "application/pdf"
-        });
-
-      if (uploadError) {
-        console.error('[useProcessing] Upload error:', uploadError);
-        throw new Error("Failed to upload file to storage: " + uploadError.message);
-      }
-      console.log('[useProcessing] File uploaded successfully:', uploadData);
-
-      // Step 5: Get public URL
-      console.log('[useProcessing] Step 5: Getting signed URL');
-      setProcessingStep("Generating download link");
-      setProcessingProgress(96);
-      
-      const { data: fileUrlData, error: urlError } = await supabase
-        .storage
-        .from('processed-files')
-        .createSignedUrl(outputFilename, 60 * 60);
-
-      if (urlError || !fileUrlData?.signedUrl) {
-        console.error('[useProcessing] URL error:', urlError);
-        throw new Error("Failed to get signed URL: " + (urlError?.message ?? "unknown error"));
-      }
-
-      outputFileUrl = fileUrlData.signedUrl;
-      setOutputUrl(outputFileUrl);
-      console.log('[useProcessing] Signed URL generated successfully');
-
-      // Step 6: Log to database
-      console.log('[useProcessing] Step 6: Logging to database');
-      setProcessingStep("Saving metadata");
-      setProcessingProgress(98);
-      
-      const { error: dbError } = await supabase
-        .from("processed_files")
-        .insert({
-          user_id: user.id,
-          original_filename: uploadedFile.file.name,
-          output_filename: outputFilename,
-          format: "PDF",
-          dpi: parameters.dpi,
-          width_mm: parameters.finalDimensions.width,
-          height_mm: parameters.finalDimensions.height,
-          bleed_mm: parameters.bleedMargin,
-          cut_line_type: parameters.cutLineType,
-          file_url: outputFileUrl,
-          processing_status: "completed",
-        });
-
-      if (dbError) {
-        console.warn('[useProcessing] Database logging failed:', dbError);
-      } else {
-        console.log('[useProcessing] Database logging successful');
-      }
-
-      // Step 7: Cleanup and success
-      console.log('[useProcessing] Step 7: Finalizing');
+      // Step 5: Cleanup and success
       setProcessingStep("Finalizing");
       setProcessingProgress(100);
       
@@ -197,8 +117,8 @@ export function useProcessing() {
       console.log('[useProcessing] Processing completed successfully');
 
       toast({
-        title: "New Workflow Complete!",
-        description: "Your file has been processed with AI content extrapolation and exported as a high-resolution PDF.",
+        title: "Processing Complete!",
+        description: "Your file has been processed and is ready for download.",
       });
 
     } catch (error: any) {
@@ -229,30 +149,6 @@ export function useProcessing() {
         description: errorDescription,
         variant: "destructive",
       });
-
-      // Log failed processing
-      if (user && uploadedFile) {
-        try {
-          await supabase
-            .from("processed_files")
-            .insert({
-              user_id: user.id,
-              original_filename: uploadedFile.file.name,
-              output_filename: outputFilename || "N/A",
-              format: "PDF",
-              dpi: parameters.dpi,
-              width_mm: parameters.finalDimensions.width,
-              height_mm: parameters.finalDimensions.height,
-              bleed_mm: parameters.bleedMargin,
-              cut_line_type: parameters.cutLineType,
-              file_url: outputFileUrl || "",
-              processing_status: "error",
-              error_message: (processingStep ? `${processingStep}: ` : "") + (error?.message || String(error)),
-            });
-        } catch (dbError) {
-          console.error('[useProcessing] Failed to log error to database:', dbError);
-        }
-      }
 
       // Cleanup processor on error
       if (imageProcessorRef.current) {
