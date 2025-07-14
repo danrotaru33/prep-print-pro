@@ -26,7 +26,7 @@ const Index = () => (
         </p>
         <Link to="/dashboard">
           <Button size="lg" className="mr-4">
-            Get Started
+            Acces
             <ArrowRight className="ml-2 h-4 w-4" />
           </Button>
         </Link>
