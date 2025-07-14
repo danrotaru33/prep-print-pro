@@ -19,12 +19,12 @@ const Index = () => (
           />
         </div>
         <h1 className="text-4xl font-bold text-foreground mb-4">
-          Daisler Print Optimizer
+          Print Image Optimiser
         </h1>
         <p className="text-xl text-muted-foreground mb-8 max-w-2xl mx-auto">
-          Transform your images for perfect print production with precise dimensions, bleed, and margins.
+          Funcționalități actuale: bleed, safe margin, DPI 300.
         </p>
-        <Link to="/auth">
+        <Link to="/dashboard">
           <Button size="lg" className="mr-4">
             Get Started
             <ArrowRight className="ml-2 h-4 w-4" />
@@ -32,49 +32,6 @@ const Index = () => (
         </Link>
       </div>
 
-      <div className="grid md:grid-cols-3 gap-8 mb-16">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Palette className="h-5 w-5" />
-              Simple Upload
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-muted-foreground">
-              Drag and drop your images or PDFs for instant processing.
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Zap className="h-5 w-5" />
-              Precise Control
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-muted-foreground">
-              Set exact dimensions, bleed, and safe margins for perfect print output.
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Download className="h-5 w-5" />
-              Export Ready
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-muted-foreground">
-              Download print-ready PDFs at 300 DPI with exact specifications.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
     </div>
   </div>
 );

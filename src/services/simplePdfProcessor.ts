@@ -1,13 +1,8 @@
 import jsPDF from 'jspdf';
 import * as pdfjsLib from 'pdfjs-dist';
 
-// Configure PDF.js worker with fallback
-try {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
-} catch (e) {
-  // Fallback to a working CDN version
-  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@5.3.31/build/pdf.worker.min.js';
-}
+// Use a simpler approach - skip PDF.js worker for now
+// pdfjsLib.GlobalWorkerOptions.workerSrc = null;
 
 export interface ProcessingParams {
   width: number;
@@ -86,9 +81,8 @@ async function loadImage(file: File): Promise<HTMLImageElement> {
   return new Promise(async (resolve, reject) => {
     try {
       if (file.type === 'application/pdf') {
-        // Handle PDF files by extracting the first page
-        const pdfImage = await extractImageFromPDF(file);
-        resolve(pdfImage);
+        // For now, reject PDF processing to avoid worker issues
+        throw new Error('PDF processing temporarily disabled. Please upload an image file instead.');
       } else {
         // Handle regular image files
         const img = new Image();
