@@ -117,10 +117,14 @@ const Auth = () => {
       <div className="w-full max-w-md space-y-6">
         <div className="text-center">
           <div className="flex justify-center mb-4">
-            <FileImage className="h-12 w-12 text-blue-600" />
+            <img 
+              src="/lovable-uploads/bbb264b1-c234-4740-a029-203d800cf5a8.png" 
+              alt="Daisler Print House Logo" 
+              className="h-16 w-auto"
+            />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Print Image Optimiser</h1>
-          <p className="text-gray-600 mt-2">Designed by automatizari.ai</p>
+          <h1 className="text-2xl font-bold text-gray-900">Daisler Print Optimizer</h1>
+          <p className="text-gray-600 mt-2">Professional print preparation</p>
         </div>
 
         <Card>

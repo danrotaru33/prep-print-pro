@@ -104,8 +104,15 @@ export default function SimpleDashboard() {
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-4xl mx-auto space-y-6">
         <div className="text-center">
+          <div className="flex justify-center mb-4">
+            <img 
+              src="/lovable-uploads/bbb264b1-c234-4740-a029-203d800cf5a8.png" 
+              alt="Daisler Print House Logo" 
+              className="h-16 w-auto"
+            />
+          </div>
           <h1 className="text-3xl font-bold text-foreground">Daisler Print Optimizer</h1>
-          <p className="text-muted-foreground mt-2">Simple image processing for print production</p>
+          <p className="text-muted-foreground mt-2">Professional image processing for print production</p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
