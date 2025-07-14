@@ -31,7 +31,7 @@ export default defineConfig(({ mode }) => ({
         // Ensure PDF.js worker is copied to the output
         assetFileNames: (assetInfo) => {
           if (assetInfo.name && assetInfo.name.includes('pdf.worker')) {
-            return 'assets/pdf.worker.[hash][extname]';
+            return 'pdf.worker.[hash].js';
           }
           return 'assets/[name].[hash][extname]';
         },
@@ -40,4 +40,8 @@ export default defineConfig(({ mode }) => ({
   },
   // Handle PDF.js worker assets
   assetsInclude: ['**/*.worker.js', '**/*.worker.min.js'],
+  // Define global for PDF.js worker
+  define: {
+    global: 'globalThis',
+  },
 }));

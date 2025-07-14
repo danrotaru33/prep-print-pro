@@ -137,8 +137,8 @@ export function useProcessing() {
         errorTitle = "Processing Timeout";
         errorDescription = "Processing took too long and was cancelled. Please try again with a smaller file or different settings.";
       } else if (error?.message?.includes('PDF')) {
-        errorTitle = "PDF Conversion Failed";
-        errorDescription = error.message + " Please try a different PDF or convert to PNG/JPG.";
+        errorTitle = "PDF Processing Failed";
+        errorDescription = error.message + " Please convert your PDF to PNG/JPG format and try again.";
       } else if (error?.message?.includes('AI') || error?.message?.includes('extrapolation')) {
         errorTitle = "AI Processing Failed";
         errorDescription = "AI content extrapolation failed. " + error.message;

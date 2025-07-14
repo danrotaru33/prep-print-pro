@@ -81,8 +81,9 @@ async function loadImage(file: File): Promise<HTMLImageElement> {
   return new Promise(async (resolve, reject) => {
     try {
       if (file.type === 'application/pdf') {
-        // For now, reject PDF processing to avoid worker issues
-        throw new Error('PDF processing temporarily disabled. Please upload an image file instead.');
+        // Process PDF using extractImageFromPDF
+        const pdfImage = await extractImageFromPDF(file);
+        resolve(pdfImage);
       } else {
         // Handle regular image files
         const img = new Image();
@@ -98,8 +99,18 @@ async function loadImage(file: File): Promise<HTMLImageElement> {
 
 async function extractImageFromPDF(file: File): Promise<HTMLImageElement> {
   try {
+    // Initialize worker if not already done
+    if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
+    }
+    
     const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const pdf = await pdfjsLib.getDocument({ 
+      data: arrayBuffer,
+      verbosity: 0,
+      useWorkerFetch: false,
+      isEvalSupported: false
+    }).promise;
     
     // Get the first page
     const page = await pdf.getPage(1);
