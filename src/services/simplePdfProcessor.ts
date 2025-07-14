@@ -1,8 +1,8 @@
 import jsPDF from 'jspdf';
 import * as pdfjsLib from 'pdfjs-dist';
 
-// Configure PDF.js worker to match the installed version
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/5.3.31/pdf.worker.min.js';
+// Configure PDF.js worker to use a local worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 export interface ProcessingParams {
   width: number;
@@ -34,27 +34,34 @@ export async function processImageToPDF(file: File, params: ProcessingParams): P
   // Load image (handles both images and PDFs)
   const img = await loadImage(file);
   
-  // Calculate the bleed area offset
+  // Calculate dimensions in pixels
   const bleedPx = Math.round(params.bleed * MM_TO_INCH * DPI);
+  const safeMarginPx = Math.round(params.safeMargin * MM_TO_INCH * DPI);
   
-  // Calculate the final canvas area (including bleed)
-  const finalCanvasWidthPx = canvasWidth;
-  const finalCanvasHeightPx = canvasHeight;
+  // Calculate the trim area (final output without bleed)
+  const trimWidthPx = Math.round(params.width * MM_TO_INCH * DPI);
+  const trimHeightPx = Math.round(params.height * MM_TO_INCH * DPI);
   
-  // Scale image to fit within the entire canvas (including bleed), preserving aspect ratio
-  const scaleX = finalCanvasWidthPx / img.width;
-  const scaleY = finalCanvasHeightPx / img.height;
-  const scale = Math.min(scaleX, scaleY); // Preserve aspect ratio without distortion
+  // Calculate the safe area (trim area minus safe margins)
+  const safeWidthPx = trimWidthPx - (safeMarginPx * 2);
+  const safeHeightPx = trimHeightPx - (safeMarginPx * 2);
+  
+  // Scale image to fit within the safe area, preserving aspect ratio
+  const scaleX = safeWidthPx / img.width;
+  const scaleY = safeHeightPx / img.height;
+  const scale = Math.min(scaleX, scaleY);
   
   const scaledWidth = img.width * scale;
   const scaledHeight = img.height * scale;
   
-  // Center the image within the final canvas (including bleed area)
-  const offsetX = (finalCanvasWidthPx - scaledWidth) / 2;
-  const offsetY = (finalCanvasHeightPx - scaledHeight) / 2;
+  // Center the image within the trim area (which is offset by bleed from canvas edge)
+  const trimOffsetX = bleedPx;
+  const trimOffsetY = bleedPx;
+  const imageOffsetX = trimOffsetX + (trimWidthPx - scaledWidth) / 2;
+  const imageOffsetY = trimOffsetY + (trimHeightPx - scaledHeight) / 2;
   
   // Draw image centered on canvas
-  ctx.drawImage(img, offsetX, offsetY, scaledWidth, scaledHeight);
+  ctx.drawImage(img, imageOffsetX, imageOffsetY, scaledWidth, scaledHeight);
   
   // Create PDF with exact output dimensions (final size + bleed) at 300 DPI
   const pdf = new jsPDF({
