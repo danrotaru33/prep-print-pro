@@ -111,8 +111,8 @@ export default function SimpleDashboard() {
               className="h-16 w-auto"
             />
           </div>
-          <h1 className="text-3xl font-bold text-foreground">Daisler Print Optimizer</h1>
-          <p className="text-muted-foreground mt-2">Professional image processing for print production</p>
+          <h1 className="text-3xl font-bold text-foreground">Print Image Optimiser</h1>
+          <p className="text-muted-foreground mt-2">Gata de print în câteva click-uri.</p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
