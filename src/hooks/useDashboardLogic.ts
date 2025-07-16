@@ -17,6 +17,8 @@ export function useDashboardLogic() {
     setParameters,
     bleedPrompt,
     setBleedPrompt,
+    useAIOutpaint,
+    setUseAIOutpaint,
     handleParameterChange,
   } = useParameters();
 
@@ -62,7 +64,7 @@ export function useDashboardLogic() {
 
   // Enhanced processing handler that passes required dependencies
   const enhancedHandleProcessing = async () => {
-    await handleProcessing(uploadedFile, parameters, bleedPrompt);
+    await handleProcessing(uploadedFile, parameters, bleedPrompt, useAIOutpaint);
   };
 
   return {
@@ -86,6 +88,8 @@ export function useDashboardLogic() {
     setProcessingProgress,
     bleedPrompt,
     setBleedPrompt,
+    useAIOutpaint,
+    setUseAIOutpaint,
     handleFileUpload: enhancedHandleFileUpload,
     handleParameterChange,
     handleValidation: enhancedHandleValidation,

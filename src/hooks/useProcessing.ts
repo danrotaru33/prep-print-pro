@@ -33,7 +33,8 @@ export function useProcessing() {
   const handleProcessing = async (
     uploadedFile: UploadedFile | null,
     parameters: ProcessingParameters,
-    bleedPrompt: string
+    bleedPrompt: string,
+    useAIOutpaint: boolean = false
   ) => {
     console.log('[useProcessing] Starting processing with parameters:', parameters);
     
@@ -42,7 +43,7 @@ export function useProcessing() {
       return;
     }
 
-    const extendedParameters = { ...parameters, bleedPrompt };
+    const extendedParameters = { ...parameters, bleedPrompt, useAIOutpaint };
 
     setProcessingState("processing");
     setProcessingStep("Initializing processor");

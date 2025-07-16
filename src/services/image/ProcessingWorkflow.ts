@@ -8,6 +8,7 @@ import { CancellationToken } from "./CancellationToken";
 import { mmToPixels, canvasToDataURL } from "./utils";
 import { AIInpaintingService } from "./AIInpaintingService";
 import { BleedFallbackFiller } from "./BleedFallbackFiller";
+import { AIOutpaintingService } from "./AIOutpaintingService";
 
 export class ProcessingWorkflow {
   private imageRenderer: ImageRenderer;
@@ -69,34 +70,84 @@ export class ProcessingWorkflow {
     
     // Step 2: AI-powered content extrapolation for bleed areas
     console.log('=== STEP 2: AI CONTENT EXTRAPOLATION ===');
-    const aiConfig = AIInpaintingService.getApiConfiguration();
     
-    if (aiConfig.hasAnyKey) {
-      this.updateProgress('Applying AI content extrapolation for bleed areas', 40);
-      console.log('[ProcessingWorkflow] Performing AI-powered content extrapolation');
+    // Check if AI outpainting is enabled
+    const useAIOutpaint = (parameters as any).useAIOutpaint;
+    
+    if (useAIOutpaint) {
+      this.updateProgress('Using AI outpainting to extend image naturally', 40);
+      console.log('[ProcessingWorkflow] Using AI outpainting for bleed areas');
       try {
-        // Set a reasonable timeout for AI processing
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => {
-          controller.abort();
-          console.log('[ProcessingWorkflow] AI processing timeout reached');
-        }, 30000); // 30 seconds total
+        // Get current canvas as blob for outpainting
+        const canvasBlob = await new Promise<Blob>((resolve, reject) => {
+          this.canvas.toBlob((blob) => {
+            if (blob) resolve(blob);
+            else reject(new Error('Failed to get canvas blob'));
+          }, 'image/png');
+        });
 
-        await this.aiBleedProcessor.processIntelligentBleed(bleedPixels, finalWidth, finalHeight, (parameters as any).bleedPrompt || '');
-        clearTimeout(timeoutId);
-        console.log('[ProcessingWorkflow] AI content extrapolation completed successfully');
+        const outpaintingService = new AIOutpaintingService();
+        const result = await outpaintingService.outpaintImage(
+          canvasBlob,
+          canvasWidth,
+          canvasHeight,
+          (parameters as any).bleedPrompt || 'Extend image naturally'
+        );
+
+        if (result.success && result.imageUrl) {
+          // Replace canvas content with outpainted image
+          const outpaintedImg = new Image();
+          await new Promise((resolve, reject) => {
+            outpaintedImg.onload = resolve;
+            outpaintedImg.onerror = reject;
+            outpaintedImg.src = result.imageUrl!;
+          });
+          
+          this.ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+          this.ctx.drawImage(outpaintedImg, 0, 0, canvasWidth, canvasHeight);
+          console.log('[ProcessingWorkflow] AI outpainting completed successfully');
+        } else {
+          throw new Error(result.error || 'AI outpainting failed');
+        }
       } catch (error: any) {
         if (this.cancellationToken.isCancelled) {
           throw error;
         }
-        console.log('[ProcessingWorkflow] AI extrapolation failed or timed out, using standard fill methods:', error?.message || error);
-        this.updateProgress('AI processing failed, using standard bleed fill', 50);
+        console.log('[ProcessingWorkflow] AI outpainting failed, falling back to standard methods:', error?.message || error);
+        this.updateProgress('AI outpainting failed, using fallback fill', 50);
         BleedFallbackFiller.finalFillBleedFromEdge(this.ctx, bleedPixels, finalWidth, finalHeight);
       }
     } else {
-      console.log('[ProcessingWorkflow] No AI keys configured, using standard bleed fill');
-      this.updateProgress('Using standard bleed fill methods', 40);
-      BleedFallbackFiller.finalFillBleedFromEdge(this.ctx, bleedPixels, finalWidth, finalHeight);
+      // Use existing AI inpainting or fallback
+      const aiConfig = AIInpaintingService.getApiConfiguration();
+      
+      if (aiConfig.hasAnyKey) {
+        this.updateProgress('Applying AI content extrapolation for bleed areas', 40);
+        console.log('[ProcessingWorkflow] Performing AI-powered content extrapolation');
+        try {
+          // Set a reasonable timeout for AI processing
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => {
+            controller.abort();
+            console.log('[ProcessingWorkflow] AI processing timeout reached');
+          }, 30000); // 30 seconds total
+
+          await this.aiBleedProcessor.processIntelligentBleed(bleedPixels, finalWidth, finalHeight, (parameters as any).bleedPrompt || '');
+          clearTimeout(timeoutId);
+          console.log('[ProcessingWorkflow] AI content extrapolation completed successfully');
+        } catch (error: any) {
+          if (this.cancellationToken.isCancelled) {
+            throw error;
+          }
+          console.log('[ProcessingWorkflow] AI extrapolation failed or timed out, using standard fill methods:', error?.message || error);
+          this.updateProgress('AI processing failed, using standard bleed fill', 50);
+          BleedFallbackFiller.finalFillBleedFromEdge(this.ctx, bleedPixels, finalWidth, finalHeight);
+        }
+      } else {
+        console.log('[ProcessingWorkflow] No AI keys configured, using standard bleed fill');
+        this.updateProgress('Using standard bleed fill methods', 40);
+        BleedFallbackFiller.finalFillBleedFromEdge(this.ctx, bleedPixels, finalWidth, finalHeight);
+      }
     }
     
     this.cancellationToken.throwIfCancelled();

@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { UploadedFile, ProcessingParameters, ProcessingState } from "@/types/print";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { useState, useEffect } from "react";
 
 interface ProcessingPanelProps {
@@ -17,6 +19,8 @@ interface ProcessingPanelProps {
   onCancel?: () => void;
   bleedPrompt?: string;
   onBleedPromptChange?: (prompt: string) => void;
+  useAIOutpaint?: boolean;
+  onUseAIOutpaintChange?: (enabled: boolean) => void;
   processingProgress?: number;
 }
 
@@ -29,6 +33,8 @@ export const ProcessingPanel = ({
   onCancel,
   bleedPrompt,
   onBleedPromptChange,
+  useAIOutpaint = false,
+  onUseAIOutpaintChange,
   processingProgress = 0,
 }: ProcessingPanelProps) => {
   const canValidate = processingState === "uploaded";
@@ -71,23 +77,45 @@ export const ProcessingPanel = ({
           </div>
         </div>
         
-        <div className="space-y-2">
-          <label className="text-xs font-semibold text-gray-700 block" htmlFor="content-prompt">
-            AI Content Extrapolation Prompt <span className="text-gray-400">(optional)</span>
-          </label>
-          <Textarea
-            id="content-prompt"
-            placeholder="Describe what content should fill the bleed areas. E.g. 'extend the background seamlessly', 'continue the pattern', 'natural sky continuation'..."
-            value={localBleedPrompt}
-            disabled={isProcessing}
-            onChange={(e) => setLocalBleedPrompt(e.target.value)}
-            onBlur={handlePromptBlur}
-            className="min-h-[48px] text-xs"
-            maxLength={400}
-          />
-          <p className="text-[11px] text-gray-400 italic">
-            AI will use this prompt to intelligently extrapolate content for bleed areas using HuggingFace models.
+        <div className="space-y-3">
+          <div className="flex items-center space-x-2">
+            <Switch
+              id="use-ai-outpaint"
+              checked={useAIOutpaint}
+              onCheckedChange={onUseAIOutpaintChange}
+              disabled={isProcessing}
+            />
+            <Label htmlFor="use-ai-outpaint" className="text-sm font-medium">
+              Use AI to fill bleed areas
+            </Label>
+          </div>
+          <p className="text-xs text-gray-500">
+            {useAIOutpaint 
+              ? "AI will intelligently extend the image content into bleed areas using Hugging Face outpainting"
+              : "Bleed areas will be filled with white padding (fallback method)"
+            }
           </p>
+          
+          {useAIOutpaint && (
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-gray-700 block" htmlFor="content-prompt">
+                AI Outpainting Prompt <span className="text-gray-400">(optional)</span>
+              </label>
+              <Textarea
+                id="content-prompt"
+                placeholder="Describe how to extend the image. E.g. 'extend the background seamlessly', 'continue the pattern', 'natural sky continuation'..."
+                value={localBleedPrompt}
+                disabled={isProcessing}
+                onChange={(e) => setLocalBleedPrompt(e.target.value)}
+                onBlur={handlePromptBlur}
+                className="min-h-[48px] text-xs"
+                maxLength={400}
+              />
+              <p className="text-[11px] text-gray-400 italic">
+                This prompt will guide the AI to create appropriate content for bleed areas.
+              </p>
+            </div>
+          )}
         </div>
 
         {isProcessing && processingState === "processing" && (

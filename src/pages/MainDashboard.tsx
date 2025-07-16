@@ -24,6 +24,8 @@ const MainDashboard = () => {
     processingError,
     processingProgress,
     bleedPrompt,
+    useAIOutpaint,
+    setUseAIOutpaint,
     handleFileUpload,
     handleParameterChange,
     handleValidation,
@@ -61,6 +63,8 @@ const MainDashboard = () => {
                 onCancel={handleCancelProcessing}
                 bleedPrompt={bleedPrompt}
                 onBleedPromptChange={setBleedPrompt}
+                useAIOutpaint={useAIOutpaint}
+                onUseAIOutpaintChange={setUseAIOutpaint}
                 processingProgress={processingProgress}
               />
             )}

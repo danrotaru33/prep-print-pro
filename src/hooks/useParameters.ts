@@ -10,6 +10,7 @@ export function useParameters() {
     cutLineType: "rectangle"
   });
   const [bleedPrompt, setBleedPrompt] = useState<string>("");
+  const [useAIOutpaint, setUseAIOutpaint] = useState<boolean>(false);
 
   const handleParameterChange = (newParams: Partial<ProcessingParameters>) => {
     setParameters(prev => ({ ...prev, ...newParams }));
@@ -20,6 +21,8 @@ export function useParameters() {
     setParameters,
     bleedPrompt,
     setBleedPrompt,
+    useAIOutpaint,
+    setUseAIOutpaint,
     handleParameterChange,
   };
 }
